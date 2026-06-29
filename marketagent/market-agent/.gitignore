@@ -3,3 +3,4 @@ __pycache__/
 watchlist.json
 memory.json
 .env
+digest.md

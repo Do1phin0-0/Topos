@@ -6,51 +6,72 @@ Powered by Claude with real-time web search and persistent memory.
 import anthropic
 import os
 import re
+import sys
 from datetime import datetime
+
+# Load .env if present (optional dependency — silently skip if not installed)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 from watchlist import load_watchlist, save_watchlist, add_to_watchlist, remove_from_watchlist
 from memory import (
-    load_memory, save_memory, store_analysis, get_prior_thesis_context,
-    register_skill, get_skills, list_all_analyzed_symbols
+    load_memory, store_analysis, get_prior_thesis_context,
+    register_skill, get_skills, list_all_analyzed_symbols, get_analysis_history,
 )
 from commands import COMMAND_REGISTRY, build_system_prompt
-from display import print_header, print_response, print_help, print_error, print_skills, print_history
+from display import print_header, print_help, print_error, print_skills, print_history
 from data import build_data_context
 
-client = anthropic.Anthropic()
-
-# Commands that should auto-save the response to memory
+# Commands that auto-save the response to memory
 ANALYSIS_COMMANDS = {"/analyze", "/stock", "/coin", "/risk", "/sentiment"}
 
 
-def _extract_symbol(user_input: str) -> str | None:
-    """Extract the primary asset symbol from a command string."""
+def _check_api_key():
+    """Exit with a clear message if no API key is configured."""
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        print("\nError: ANTHROPIC_API_KEY is not set.\n")
+        print("Option 1 — .env file (recommended):")
+        print("  Copy .env.example to .env and add your key.\n")
+        print("Option 2 — environment variable:")
+        print("  Mac/Linux:  export ANTHROPIC_API_KEY=your_key_here")
+        print("  Windows:    $env:ANTHROPIC_API_KEY=\"your_key_here\"\n")
+        print("Get your key at: https://console.anthropic.com\n")
+        sys.exit(1)
+
+
+def _extract_symbols(user_input: str) -> list[str]:
+    """Extract up to 2 asset symbols from a command string."""
     parts = user_input.strip().split()
-    if len(parts) >= 2:
-        candidate = parts[1].upper().lstrip("$")
-        # Basic sanity: 1-10 alphanumeric chars
+    symbols = []
+    for raw in parts[1:]:
+        candidate = raw.upper().lstrip("$")
         if re.match(r"^[A-Z0-9]{1,10}$", candidate):
-            return candidate
-    return None
+            symbols.append(candidate)
+        if len(symbols) == 2:
+            break
+    return symbols
 
 
 def run_command(user_input: str, conversation_history: list, watchlist: dict, memory: dict) -> str:
-    """Send a command to the agent with a proper agentic loop for web search."""
+    """Send a command to the agent with streaming output and agentic web search loop."""
 
-    # Inject watchlist context
+    # Build context block
     context_parts = []
     if watchlist.get("assets"):
         context_parts.append(f"[USER WATCHLIST: {', '.join(watchlist['assets'])}]")
 
-    # Inject live market data (prices, volume, fundamentals, insiders)
+    # Live market data (prices, fundamentals, insiders)
     live_data = build_data_context(user_input, watchlist)
     if live_data:
         context_parts.append(live_data)
 
-    # Inject prior thesis context for recognized symbols
-    symbol = _extract_symbol(user_input)
-    if symbol:
-        prior = get_prior_thesis_context(memory, symbol)
+    # Prior thesis for all recognized symbols (fixes /compare injecting both)
+    symbols = _extract_symbols(user_input)
+    for sym in symbols:
+        prior = get_prior_thesis_context(memory, sym)
         if prior:
             context_parts.append(prior)
 
@@ -59,54 +80,56 @@ def run_command(user_input: str, conversation_history: list, watchlist: dict, me
         message_content += "\n\n" + "\n".join(context_parts)
 
     conversation_history.append({"role": "user", "content": message_content})
-
-    # Run the agentic loop (handles multi-turn web search tool use)
     messages = list(conversation_history)
 
+    client = anthropic.Anthropic()
+    full_response = ""
+    search_count = 0
+
     while True:
-        response = client.messages.create(
+        current_text = ""
+
+        with client.messages.stream(
             model="claude-sonnet-4-6",
             max_tokens=4096,
             system=build_system_prompt(memory),
             tools=[{"type": "web_search_20250305", "name": "web_search"}],
             messages=messages,
-        )
+        ) as stream:
+            for chunk in stream.text_stream:
+                print(chunk, end="", flush=True)
+                current_text += chunk
+            final = stream.get_final_message()
 
-        if response.stop_reason == "tool_use":
-            # Append assistant message (contains tool_use blocks)
-            messages.append({"role": "assistant", "content": response.content})
-
-            # Send tool_result for each tool_use block
-            # web_search_20250305 is server-side — Anthropic runs the search;
-            # we just acknowledge each call and let the server inject results.
+        if final.stop_reason == "tool_use":
+            messages.append({"role": "assistant", "content": final.content})
             tool_results = [
-                {
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": "",
-                }
-                for block in response.content
-                if block.type == "tool_use"
+                {"type": "tool_result", "tool_use_id": b.id, "content": ""}
+                for b in final.content
+                if b.type == "tool_use"
             ]
             messages.append({"role": "user", "content": tool_results})
+            search_count += 1
+            # Show search indicator only if no text was streamed (pure tool call)
+            if not current_text:
+                print(f"   [searching... #{search_count}]", flush=True)
             continue
 
-        # end_turn or max_tokens — extract final text
+        full_response = current_text
         break
 
-    full_response = "".join(
-        block.text for block in response.content if hasattr(block, "text")
-    )
+    print("\n")  # newline after streamed content
 
-    # Save to conversation history (text only for compactness)
+    # Save to conversation history
     conversation_history.append({"role": "assistant", "content": full_response})
     if len(conversation_history) > 40:
         conversation_history[:] = conversation_history[-40:]
 
-    # Auto-save analyses to memory
+    # Auto-save analyses to persistent memory
     cmd = user_input.strip().split()[0].lower() if user_input.strip() else ""
-    if cmd in ANALYSIS_COMMANDS and symbol and full_response:
-        store_analysis(memory, symbol, full_response, command=cmd)
+    primary_symbol = symbols[0] if symbols else None
+    if cmd in ANALYSIS_COMMANDS and primary_symbol and full_response:
+        store_analysis(memory, primary_symbol, full_response, command=cmd)
 
     return full_response
 
@@ -117,15 +140,14 @@ def handle_local_commands(user_input: str, watchlist: dict, memory: dict) -> tup
     cmd = parts[0].lower() if parts else ""
 
     if cmd == "/help":
-        return True, None  # signal print_help
+        return True, None
 
     if cmd == "/skills":
-        return True, "SKILLS"  # signal print_skills
+        return True, "SKILLS"
 
     if cmd == "/history":
         if len(parts) >= 2:
-            symbol = parts[1].upper()
-            return True, f"HISTORY:{symbol}"
+            return True, f"HISTORY:{parts[1].upper()}"
         return True, "Usage: /history SYMBOL"
 
     if cmd == "/watch":
@@ -149,24 +171,24 @@ def handle_local_commands(user_input: str, watchlist: dict, memory: dict) -> tup
     return False, None
 
 
-def handle_buildskill_response(user_input: str, response_text: str, memory: dict):
-    """If the user ran /buildskill and the agent described a new skill, register it."""
+def handle_buildskill_response(user_input: str, memory: dict):
+    """Register a new skill after /buildskill runs."""
     parts = user_input.strip().split()
     if len(parts) < 2 or parts[0].lower() != "/buildskill":
         return
     skill_name = parts[1].lower()
     if skill_name not in memory.get("skills", {}):
-        # Best-effort extraction — store what the agent produced
         register_skill(
             memory,
             name=skill_name,
-            description=f"Custom skill registered via /buildskill on {datetime.now().strftime('%Y-%m-%d')}",
+            description=f"Custom skill registered on {datetime.now().strftime('%Y-%m-%d')}",
             data_sources="web search",
             output_format="AI-generated",
         )
 
 
 def main():
+    _check_api_key()
     print_header()
 
     watchlist = load_watchlist()
@@ -175,9 +197,11 @@ def main():
 
     analyzed = list_all_analyzed_symbols(memory)
     if analyzed:
-        print(f"Memory loaded — {len(analyzed)} prior analyses: {', '.join(analyzed[:8])}"
-              + (" ..." if len(analyzed) > 8 else ""))
-    print("Type /help for commands. Type 'exit' to quit.\n")
+        label = ", ".join(analyzed[:8]) + (" ..." if len(analyzed) > 8 else "")
+        print(f"Memory: {len(analyzed)} prior analyses ({label})")
+    if watchlist.get("assets"):
+        print(f"Watchlist: {', '.join(watchlist['assets'])}")
+    print("\nType /help for commands. Type 'exit' to quit.\n")
 
     while True:
         try:
@@ -202,17 +226,15 @@ def main():
                 print_skills(COMMAND_REGISTRY, get_skills(memory))
             elif local_result.startswith("HISTORY:"):
                 symbol = local_result.split(":", 1)[1]
-                from memory import get_analysis_history
                 print_history(symbol, get_analysis_history(memory, symbol))
             else:
                 print(f"\n{local_result}\n")
             continue
 
-        print("\n📡 Fetching live data + researching...\n")
+        print("\n📡 Fetching live data...\n")
         try:
-            response = run_command(user_input, conversation_history, watchlist, memory)
-            print_response(response)
-            handle_buildskill_response(user_input, response, memory)
+            run_command(user_input, conversation_history, watchlist, memory)
+            handle_buildskill_response(user_input, memory)
         except anthropic.APIError as e:
             print_error(f"API error: {e}")
         except Exception as e:

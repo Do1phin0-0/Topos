@@ -138,18 +138,32 @@ def fetch_insiders(ticker: str) -> list[dict]:
 # Crypto data via CoinGecko
 # ---------------------------------------------------------------------------
 
+def _coingecko_get(url: str, params: dict = None, max_retries: int = 3) -> requests.Response | None:
+    """GET with exponential backoff on 429 rate-limit responses."""
+    for attempt in range(max_retries):
+        try:
+            r = requests.get(url, params=params, timeout=8)
+            if r.status_code == 429:
+                time.sleep(2 ** attempt)
+                continue
+            return r
+        except Exception:
+            if attempt == max_retries - 1:
+                return None
+            time.sleep(1)
+    return None
+
+
 def _coingecko_id(symbol: str) -> str | None:
     sym = symbol.upper()
     if sym in _CRYPTO_IDS:
         return _CRYPTO_IDS[sym]
-    # Fallback: search
-    try:
-        r = requests.get(f"{_COINGECKO_BASE}/search", params={"query": sym}, timeout=6)
+    # Fallback: search (only for unknown symbols)
+    r = _coingecko_get(f"{_COINGECKO_BASE}/search", params={"query": sym})
+    if r:
         coins = r.json().get("coins", [])
         if coins:
             return coins[0]["id"]
-    except Exception:
-        pass
     return None
 
 
@@ -158,12 +172,13 @@ def fetch_crypto(symbol: str) -> dict | None:
     coin_id = _coingecko_id(symbol)
     if not coin_id:
         return None
+    r = _coingecko_get(
+        f"{_COINGECKO_BASE}/coins/{coin_id}",
+        params={"localization": "false", "tickers": "false", "community_data": "false"},
+    )
+    if not r:
+        return None
     try:
-        r = requests.get(
-            f"{_COINGECKO_BASE}/coins/{coin_id}",
-            params={"localization": "false", "tickers": "false", "community_data": "false"},
-            timeout=8,
-        )
         d = r.json()
         m = d.get("market_data", {})
         return {

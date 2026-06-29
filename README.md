@@ -2,6 +2,10 @@
 
 A command-driven market research platform powered by Claude AI. Tracks stocks and crypto in real time, builds evidence-based bull/bear theses, remembers every analysis, and lets you grow it with custom commands.
 
+**Two ways to run it:**
+- **CLI** (`agent.py`) — real-time data, persistent memory, terminal-based
+- **Claude.ai Project** — no setup, works in browser/mobile, shareable with a team
+
 > **Disclaimer:** For research and education only. Not a financial advisor. Never guarantees returns. Always do your own research.
 
 ---
@@ -49,7 +53,17 @@ The agent runs an **agentic loop** — it can trigger multiple web searches in o
 
 ---
 
-## Setup
+## Option A — Claude.ai Project (no install)
+
+1. Go to [claude.ai](https://claude.ai) → **Projects** → **New Project**
+2. Open `marketagent/claude-project/INSTRUCTIONS.md` and paste the contents into **Project Instructions**
+3. Start a conversation and type `/scan`
+
+See `marketagent/claude-project/QUICKSTART.md` for full details and tips.
+
+---
+
+## Option B — CLI (full features)
 
 **Requirements:** Python 3.10+, an [Anthropic API key](https://console.anthropic.com)
 
@@ -60,13 +74,15 @@ cd marketagent/market-agent
 # Install dependencies
 pip install -r requirements.txt
 
-# Set your API key
-export ANTHROPIC_API_KEY=your_key_here    # Mac/Linux
-$env:ANTHROPIC_API_KEY="your_key_here"   # Windows PowerShell
+# Configure your API key
+cp .env.example .env
+# Edit .env and add your key
 
 # Run
 python agent.py
 ```
+
+The agent validates the key at startup and shows a clear error if it's missing.
 
 ---
 
@@ -310,19 +326,26 @@ Registered skills appear in `/skills` and persist in `memory.json`.
 ## Project Structure
 
 ```
-marketagent/market-agent/
-├── agent.py          — Main loop, agentic web-search, memory + data injection
-├── commands.py       — System prompt (7,700+ chars) and command registry
-├── data.py           — yfinance + CoinGecko fetchers and formatters
-├── memory.py         — Persistent analysis history and custom skill storage
-├── watchlist.py      — Local JSON watchlist management
-├── display.py        — Terminal formatting (rich library)
-├── requirements.txt  — anthropic, rich, yfinance, requests
-└── .gitignore        — Excludes watchlist.json, memory.json, __pycache__
+marketagent/
+├── market-agent/                   ← CLI application
+│   ├── agent.py                    — Main loop, streaming, agentic web search, memory
+│   ├── commands.py                 — System prompt and command registry
+│   ├── data.py                     — yfinance + CoinGecko fetchers and formatters
+│   ├── memory.py                   — Persistent analysis history and custom skills
+│   ├── watchlist.py                — Local JSON watchlist management
+│   ├── display.py                  — Terminal formatting (rich)
+│   ├── requirements.txt            — anthropic, rich, yfinance, requests, python-dotenv
+│   ├── .env.example                — Copy to .env and add your API key
+│   └── .gitignore
+│
+└── claude-project/                 ← Claude.ai Project (no install version)
+    ├── INSTRUCTIONS.md             — Paste into Project Instructions in claude.ai
+    └── QUICKSTART.md               — Setup guide and usage tips
 
 Runtime files (auto-created, gitignored):
-  watchlist.json      — your watched assets and add dates
-  memory.json         — stored analyses and registered skills
+  market-agent/watchlist.json       — your watched assets
+  market-agent/memory.json          — stored analyses and custom skills
+  market-agent/.env                 — your API key (never commit this)
 ```
 
 ---
