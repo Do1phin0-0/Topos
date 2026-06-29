@@ -4,10 +4,8 @@ Powered by Claude with real-time web search and persistent memory.
 """
 
 import anthropic
-import json
 import os
 import re
-import sys
 from datetime import datetime
 
 from watchlist import load_watchlist, save_watchlist, add_to_watchlist, remove_from_watchlist
@@ -17,6 +15,7 @@ from memory import (
 )
 from commands import COMMAND_REGISTRY, build_system_prompt
 from display import print_header, print_response, print_help, print_error, print_skills, print_history
+from data import build_data_context
 
 client = anthropic.Anthropic()
 
@@ -42,6 +41,11 @@ def run_command(user_input: str, conversation_history: list, watchlist: dict, me
     context_parts = []
     if watchlist.get("assets"):
         context_parts.append(f"[USER WATCHLIST: {', '.join(watchlist['assets'])}]")
+
+    # Inject live market data (prices, volume, fundamentals, insiders)
+    live_data = build_data_context(user_input, watchlist)
+    if live_data:
+        context_parts.append(live_data)
 
     # Inject prior thesis context for recognized symbols
     symbol = _extract_symbol(user_input)
@@ -204,7 +208,7 @@ def main():
                 print(f"\n{local_result}\n")
             continue
 
-        print("\n🔍 Researching...\n")
+        print("\n📡 Fetching live data + researching...\n")
         try:
             response = run_command(user_input, conversation_history, watchlist, memory)
             print_response(response)
