@@ -9,10 +9,13 @@ unless told otherwise.
 
 Steps:
 
-1. Use `WebSearch` to find last night's / recent notable results and standout performers.
-2. For each one worth surfacing, find their next scheduled game and current relevant
+1. Read `PROMPTS/lessons.md` and note anything relevant to today's scope — apply it below
+   rather than repeating a past mistake.
+2. Use `WebSearch` to find last night's / recent notable results and standout performers.
+3. For each one worth surfacing, find their next scheduled game and current relevant
    odds/props.
-3. Output using the format in `PROMPTS/sports-suggestions.md`: what happened, next game,
+4. Output using the format in `PROMPTS/sports-suggestions.md`: what happened, next game,
    suggestion, why.
-4. Apply the responsible-gambling guidance throughout, and don't manufacture picks just to
+5. Apply the responsible-gambling guidance throughout, and don't manufacture picks just to
    fill out a list — fewer (or zero) genuine suggestions beats padded ones.
+6. Suggest `/log-pick` for any suggestion worth tracking for calibration later.

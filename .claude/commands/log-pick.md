@@ -14,8 +14,8 @@ Steps:
 
 1. Build one JSON object matching the schema in `logs/README.md`: `id` (timestamp + short
    slug), `date` (today), `domain` ("sports" or "market"), `subject`, `your_probability`,
-   `market_probability`, `market_source`, `outcome: null`, `resolved_date: null`, `notes`
-   (optional).
+   `market_probability`, `market_source`, `outcome: null`, `resolved_date: null`,
+   `reason: null`, `notes` (optional).
 2. Append it as a single line to `logs/picks.jsonl` (create the file if it doesn't exist —
    do not overwrite existing lines).
 3. Confirm what was logged. Do not commit the change to git unless the user explicitly
