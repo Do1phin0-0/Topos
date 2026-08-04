@@ -1,0 +1,53 @@
+# NOTE: Render no longer offers a free-tier Postgres plan (free databases
+# used to auto-expire after 30 days; that option has since been removed).
+# "starter" below is the cheapest paid tier as of this writing — check
+# https://render.com/pricing and your Render dashboard before deploying,
+# since this repo can't verify current pricing live.
+databases:
+  - name: topos-db
+    plan: starter
+    databaseName: topos
+    user: topos
+
+services:
+  - type: web
+    name: topos-dashboard
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: topos-db
+          property: connectionString
+      - key: SEC_EDGAR_USER_AGENT
+        sync: false
+      - key: ALPACA_API_KEY
+        sync: false
+      - key: ALPACA_SECRET_KEY
+        sync: false
+      - key: ALPACA_BASE_URL
+        value: https://paper-api.alpaca.markets
+
+  - type: cron
+    name: topos-pipeline
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerCommand: python scripts/run_pipeline.py
+    # Every hour, UTC. Cron schedules on Render always run in UTC — adjust
+    # for market hours / your timezone as needed.
+    schedule: "0 * * * *"
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: topos-db
+          property: connectionString
+      - key: SEC_EDGAR_USER_AGENT
+        sync: false
+      - key: ALPACA_API_KEY
+        sync: false
+      - key: ALPACA_SECRET_KEY
+        sync: false
+      - key: ALPACA_BASE_URL
+        value: https://paper-api.alpaca.markets

@@ -1,0 +1,27 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: topos
+      POSTGRES_PASSWORD: topos
+      POSTGRES_DB: topos
+    ports:
+      - "5432:5432"
+    volumes:
+      - topos_db_data:/var/lib/postgresql/data
+
+  dashboard:
+    build: .
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgresql://topos:topos@db:5432/topos
+      SEC_EDGAR_USER_AGENT: ${SEC_EDGAR_USER_AGENT:-Topos Research contact@example.com}
+      ALPACA_API_KEY: ${ALPACA_API_KEY:-}
+      ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
+      ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
+    ports:
+      - "8501:8501"
+
+volumes:
+  topos_db_data:
