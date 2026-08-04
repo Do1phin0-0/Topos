@@ -76,3 +76,19 @@ def test_empty_ticker_scores_zero_and_holds():
 
     assert score.score == 0.0
     assert score.recommendation == "HOLD"
+
+
+def test_score_ticker_uses_the_shared_run_timestamp_when_given():
+    # score_all() passes one run_timestamp to every ticker it scores in a
+    # single call, so callers (like execution) can reliably ask for "every
+    # row from the latest run" via an exact computed_at match. Regression
+    # test for a real bug: this used to call datetime.utcnow() once per
+    # ticker instead, so rows from the same run didn't share a timestamp.
+    shared_timestamp = datetime(2026, 1, 1, 12, 0, 0)
+    engine = SignalScoringEngine()
+
+    score_a = engine._score_ticker("AAA", [_congress_trade("purchase", 100_000)], [], computed_at=shared_timestamp)
+    score_b = engine._score_ticker("BBB", [], [_insider_trade("buy", 100_000)], computed_at=shared_timestamp)
+
+    assert score_a.computed_at == shared_timestamp
+    assert score_b.computed_at == shared_timestamp

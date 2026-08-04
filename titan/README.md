@@ -36,7 +36,15 @@ Being built in small iterative steps. Current state:
       score, disagreement pulls it down) and no single-source
       recommendations — a ticker needs *both* trackers to have activity,
       not just one, before it can be BUY/SELL.
-- [ ] Alpaca paper trading integration
+- [x] Alpaca paper trading integration — `POST /execution/run` takes the
+      BUY recommendations from the most recent scoring run, equal-weights
+      the top N by score, and submits paper orders via Alpaca. Defaults
+      to a dry run (`execute=false`); needs `execute=true` plus
+      `ALPACA_API_KEY`/`ALPACA_SECRET_KEY` to submit real paper orders.
+      Every attempt is logged to `trades` regardless of outcome.
+      `GET /execution/trades` lists history; `GET /execution/account` and
+      `/execution/positions` proxy Alpaca's own account endpoints (400 if
+      credentials aren't set).
 - [ ] Streamlit dashboard
 
 ## Architecture

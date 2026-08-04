@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlalchemy import text
 
-from titan.app.api import congress, insider, scoring
+from titan.app.api import congress, execution, insider, scoring
 from titan.app.db.session import SessionLocal, init_db
 
 
@@ -17,6 +17,7 @@ app = FastAPI(title="Titan", lifespan=lifespan)
 app.include_router(congress.router)
 app.include_router(insider.router)
 app.include_router(scoring.router)
+app.include_router(execution.router)
 
 
 @app.get("/health")

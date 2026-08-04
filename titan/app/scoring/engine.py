@@ -39,9 +39,20 @@ class SignalScoringEngine:
         for row in db.query(InsiderTrade).filter(InsiderTrade.transaction_date >= since):
             insider_by_ticker[row.ticker].append(row)
 
+        # Shared across every ticker scored in this call, not re-read per
+        # ticker — callers that want "the latest run" (e.g. execution)
+        # need every row from one score_all() call to carry the exact same
+        # computed_at, not independent microsecond-apart timestamps.
+        run_timestamp = datetime.utcnow()
+
         tickers = set(congress_by_ticker) | set(insider_by_ticker)
         scores = [
-            self._score_ticker(ticker, congress_by_ticker.get(ticker, []), insider_by_ticker.get(ticker, []))
+            self._score_ticker(
+                ticker,
+                congress_by_ticker.get(ticker, []),
+                insider_by_ticker.get(ticker, []),
+                computed_at=run_timestamp,
+            )
             for ticker in tickers
         ]
         scores.sort(key=lambda s: s.score, reverse=True)
@@ -56,6 +67,7 @@ class SignalScoringEngine:
         ticker: str,
         congress_trades: list[CongressionalTrade],
         insider_trades: list[InsiderTrade],
+        computed_at: datetime | None = None,
     ) -> SignalScore:
         buy_weight = 0.0
         sell_weight = 0.0
@@ -100,7 +112,7 @@ class SignalScoringEngine:
             net_direction=round(net_direction, 3),
             congress_signal_count=len(congress_trades),
             insider_signal_count=len(insider_trades),
-            computed_at=datetime.utcnow(),
+            computed_at=computed_at or datetime.utcnow(),
         )
 
     @staticmethod
