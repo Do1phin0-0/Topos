@@ -22,7 +22,11 @@ Being built in small iterative steps. Current state:
       structured API exists) and upserts into `congressional_trades`
       (deduped so repeat ingestion runs don't pile up rows);
       `GET /congress/trades` lists them, filterable by `ticker`.
-- [ ] Insider trade tracker
+- [x] Insider trade tracker — `POST /insider/ingest` pulls SEC Form 4
+      filings from EDGAR (no API key required), nets out buy/sell
+      direction from non-derivative transactions, and upserts into
+      `insider_trades` (deduped on filing URL); `GET /insider/trades`
+      lists them, filterable by `ticker`.
 - [ ] Signal scoring engine
 - [ ] Alpaca paper trading integration
 - [ ] Streamlit dashboard
