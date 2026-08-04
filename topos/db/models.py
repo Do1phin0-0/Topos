@@ -23,7 +23,9 @@ class RankedOpportunity(Base):
 
     id = Column(Integer, primary_key=True)
     ticker = Column(String, nullable=False, index=True)
-    score = Column(Float, nullable=False)
+    score = Column(Float, nullable=False)  # 0-100
+    recommendation = Column(String, nullable=False)  # BUY | SELL | HOLD
+    net_direction = Column(Float, nullable=False)  # -1 (all sell) .. +1 (all buy)
     signal_count = Column(Integer, nullable=False)
     sources = Column(JSON, nullable=False)
     rank_timestamp = Column(DateTime, default=datetime.utcnow)

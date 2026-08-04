@@ -63,3 +63,7 @@ services:
         sync: false
       - key: TWITTER_BEARER_TOKEN
         sync: false
+      # Optional — institutional-ownership (13F) signals work without this
+      # at a low rate limit; set for higher OpenFIGI throughput.
+      - key: OPENFIGI_API_KEY
+        sync: false

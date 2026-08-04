@@ -34,7 +34,7 @@ and `evidence` payload (`topos/signals/base.py`).
 | Technical indicators | **Live** — `topos/signals/technical.py`, RSI(14) + SMA 20/50 crossover from free Stooq price data |
 | Reddit sentiment | **Live, opt-in** — `topos/signals/reddit.py`, needs a free registered Reddit API app (see below) |
 | X/Twitter sentiment | **Live, opt-in** — `topos/signals/twitter.py`, needs a **paid** X API plan (see below) |
-| SEC 13F-HR (hedge fund holdings) | Collector wired, extraction is a follow-up (needs prior-quarter diffing to be meaningful) |
+| Institutional ownership (13F) | **Live** — `topos/signals/institutional.py`, diffs a fund's 13F-HR against its own prior quarter (see caveat below) |
 | Options activity | Not started |
 | Analyst revisions | Not started |
 
@@ -70,6 +70,17 @@ firehose of "sentiment for the whole market." Each pipeline run, they only
 look at tickers that Form 4 / congressional / earnings activity already
 surfaced that run (capped at 20), rather than scanning blindly.
 
+**Institutional ownership (13F) caveat:** 13F filings report holdings by
+CUSIP, not ticker, and there's no free official CUSIP→ticker mapping
+(CUSIP data itself is commercially licensed). Topos resolves CUSIPs via
+[OpenFIGI](https://www.openfigi.com)'s free mapping API — works
+unauthenticated at a low rate limit, or set `OPENFIGI_API_KEY` (free
+signup) for a higher one. Coverage isn't complete; holdings that don't
+resolve are dropped, not guessed at. Diffing a fund's holdings against its
+own prior quarter also means fetching two 13F filings plus a filing-history
+lookup per institution, so this is capped at 5 institutional filers per
+pipeline run.
+
 ## Phase 1 MVP — done
 
 - Form 4 filings pulled live from SEC EDGAR (no API key required).
@@ -101,6 +112,37 @@ and caveats on each. Each source fails independently; one being down
 rest of the pipeline.
 
 13F diffing and options/analyst-revision signals are still not implemented.
+
+## Phase 3 — AI ranking layer — done
+
+The ranking engine (`topos/ranking/ranker.py`) now produces a 0-100
+**combined score** and a **BUY / SELL / HOLD recommendation** per ticker,
+instead of a bare 0-1 attention score:
+
+- **Direction matters, not just volume.** A ticker with several strongly
+  bearish signals no longer scores the same as one with equally strong
+  bullish signals — the score is scaled down when signals disagree on
+  direction (buy vs. sell), based on each signal's own `evidence.direction`.
+- **No single-source recommendations.** Matching the project's own stated
+  principle ("should not blindly follow any single source"), a ticker
+  needs signals from at least 2 distinct sources agreeing on direction to
+  get a BUY or SELL recommendation. One strong signal alone caps out at
+  HOLD, however high its score.
+- **The portfolio engine only acts on BUY.** This closes a real bug from
+  Phase 1/2: the old ranking only measured "how much attention is this
+  ticker getting," so a ticker could rank #1 purely on strong *sell*
+  signals and the portfolio engine would still buy it (nothing checked
+  direction). It now filters on `recommendation == "BUY"` explicitly.
+  Institutional-ownership increases (Signal E) count toward this the same
+  as any other source.
+
+**Schema note:** `ranked_opportunities` gained two required columns
+(`recommendation`, `net_direction`) and `score` changed scale from 0-1 to
+0-100. `SQLAlchemy`'s `create_all()` won't retrofit an existing table, so
+if you already have a deployed/local database from before this change,
+drop the `ranked_opportunities` table before redeploying — it's cached
+rankings, not source-of-truth data, so this is safe. `signals` and `trades`
+are untouched.
 
 ## Setup
 
@@ -141,10 +183,12 @@ and (optionally) `ALPACA_API_KEY`/`ALPACA_SECRET_KEY` as secrets when
 prompted — they're marked `sync: false` in the blueprint so Render won't
 try to auto-populate them.
 
-Note: Render discontinued its free Postgres tier a while back, so
-`topos-db` is set to the `starter` plan. Check
+Note: Render discontinued its free Postgres tier, and later also retired
+the old named tiers (including `starter`) for new databases — `topos-db`
+is set to `basic-256mb`, Render's current cheapest paid plan. Check
 [render.com/pricing](https://render.com/pricing) and your dashboard before
-deploying — this repo has no way to verify current pricing at write time.
+deploying — this repo has no way to verify current pricing/plan names
+live, and Render has changed this naming scheme before.
 
 ## Disclaimer
 
