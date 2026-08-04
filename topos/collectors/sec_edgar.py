@@ -7,6 +7,7 @@ from topos.config import load_settings
 
 ATOM_NS = "{http://www.w3.org/2005/Atom}"
 BASE_URL = "https://www.sec.gov"
+DATA_BASE_URL = "https://data.sec.gov"
 
 
 class SECEdgarCollector:
@@ -50,6 +51,31 @@ class SECEdgarCollector:
                 }
             )
         return filings
+
+    def filing_history(self, cik: int, count: int = 80) -> list[dict[str, Any]]:
+        """A single filer's own filing history — used to find a fund's
+        prior-quarter 13F, since the global atom feeds only show the most
+        recent filings across all filers, not one filer's own timeline."""
+        padded_cik = str(cik).zfill(10)
+        try:
+            data = self._get(f"{DATA_BASE_URL}/submissions/CIK{padded_cik}.json").json()
+        except (requests.HTTPError, ValueError):
+            return []
+        recent = data.get("filings", {}).get("recent", {})
+        forms = recent.get("form", [])
+        accessions = recent.get("accessionNumber", [])
+        dates = recent.get("filingDate", [])
+        filings = []
+        for form, accession, filed_at in zip(forms, accessions, dates):
+            accession_nodash = accession.replace("-", "")
+            filings.append(
+                {
+                    "form_type": form,
+                    "filing_date": filed_at,
+                    "index_url": f"{BASE_URL}/Archives/edgar/data/{cik}/{accession_nodash}/{accession}-index.htm",
+                }
+            )
+        return filings[:count]
 
     def filing_documents(self, index_url: str) -> list[dict[str, str]]:
         """Every document (name + url) in a filing's directory."""

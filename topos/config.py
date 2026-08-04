@@ -13,6 +13,7 @@ class Settings:
     reddit_client_secret: str
     reddit_user_agent: str
     twitter_bearer_token: str
+    openfigi_api_key: str
 
 
 def load_settings() -> Settings:
@@ -32,4 +33,5 @@ def load_settings() -> Settings:
         reddit_client_secret=os.environ.get("REDDIT_CLIENT_SECRET", ""),
         reddit_user_agent=os.environ.get("REDDIT_USER_AGENT", "topos-signal-bot/0.1"),
         twitter_bearer_token=os.environ.get("TWITTER_BEARER_TOKEN", ""),
+        openfigi_api_key=os.environ.get("OPENFIGI_API_KEY", ""),
     )

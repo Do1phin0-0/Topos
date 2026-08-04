@@ -82,7 +82,9 @@ if ranked:
         [
             {
                 "ticker": r.ticker,
-                "score": r.score,
+                "recommendation": r.recommendation,
+                "combined_score": f"{r.score:.0f}/100",
+                "net_direction": r.net_direction,
                 "signal_count": r.signal_count,
                 "sources": ", ".join(r.sources),
                 "ranked_at": r.rank_timestamp,

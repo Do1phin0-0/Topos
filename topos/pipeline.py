@@ -9,6 +9,7 @@ from topos.signals.base import Signal
 from topos.signals.congress import CongressSignalExtractor
 from topos.signals.earnings import EarningsSignalExtractor
 from topos.signals.form4 import Form4SignalExtractor
+from topos.signals.institutional import InstitutionalSignalExtractor
 from topos.signals.news import NewsSignalExtractor
 from topos.signals.reddit import RedditSignalExtractor
 from topos.signals.technical import TechnicalSignalExtractor
@@ -27,6 +28,7 @@ def _collect_discovery_signals(limit: int) -> list[Signal]:
         ("sec_form4", Form4SignalExtractor),
         ("congress", CongressSignalExtractor),
         ("sec_8k_earnings", EarningsSignalExtractor),
+        ("institutional_13f", InstitutionalSignalExtractor),
     ]:
         try:
             signals.extend(extractor_cls().extract(limit=limit))
