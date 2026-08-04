@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Any
 
 import requests
 
@@ -11,11 +12,14 @@ class OrderResult:
     ticker: str
     status: str
     detail: str
+    order_id: str | None = None
 
 
 class AlpacaExecutionClient:
     """Talks to Alpaca's paper trading endpoint by default (ALPACA_BASE_URL
-    in .env.example). dry_run=True never hits the network."""
+    in .env.example). dry_run=True never hits the network. Account/position
+    lookups are used for returns tracking rather than computing P&L
+    ourselves — Alpaca's paper account already does that correctly."""
 
     def __init__(self) -> None:
         settings = load_settings()
@@ -24,6 +28,11 @@ class AlpacaExecutionClient:
             "APCA-API-KEY-ID": settings.alpaca_api_key,
             "APCA-API-SECRET-KEY": settings.alpaca_secret_key,
         }
+
+    def _get(self, path: str) -> Any:
+        response = requests.get(f"{self._base_url}{path}", headers=self._headers, timeout=15)
+        response.raise_for_status()
+        return response.json()
 
     def place_order(
         self, target: TargetPosition, notional_usd: float, dry_run: bool = True
@@ -47,4 +56,16 @@ class AlpacaExecutionClient:
             timeout=15,
         )
         response.raise_for_status()
-        return OrderResult(ticker=target.ticker, status="submitted", detail=response.json().get("id", ""))
+        body = response.json()
+        return OrderResult(
+            ticker=target.ticker,
+            status="submitted",
+            detail=f"submitted market order for ${notional_usd:.2f}",
+            order_id=body.get("id"),
+        )
+
+    def get_account(self) -> dict[str, Any]:
+        return self._get("/v2/account")
+
+    def get_positions(self) -> list[dict[str, Any]]:
+        return self._get("/v2/positions")

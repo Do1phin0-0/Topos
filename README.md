@@ -28,8 +28,8 @@ and `evidence` payload (`topos/signals/base.py`).
 | Source | Status |
 | --- | --- |
 | SEC Form 4 (insider buy/sell) | **Live** — `topos/signals/form4.py` |
+| Congressional trade disclosures | **Live** — `topos/signals/congress.py`, via House/Senate Stock Watcher (see caveat below) |
 | SEC 13F-HR (hedge fund holdings) | Collector wired, extraction is a follow-up (needs prior-quarter diffing to be meaningful) |
-| Congressional trade disclosures | Not started — no free official API (would need QuiverQuant or a scraper) |
 | Earnings reports | Not started |
 | News sentiment | Not started — needs a provider (NewsAPI, Finnhub, etc.) |
 | Technical indicators | Not started |
@@ -37,25 +37,38 @@ and `evidence` payload (`topos/signals/base.py`).
 | Analyst revisions | Not started |
 | Social sentiment | Not started |
 
-## Current MVP scope
+**Congressional data caveat:** there is no free official structured API for
+congressional trade disclosures — the House Clerk and Senate eFD systems
+only publish PDFs. Topos pulls from [House Stock Watcher](https://housestockwatcher.com)
+and [Senate Stock Watcher](https://senatestockwatcher.com), open-source
+projects that parse those official PDFs into public JSON. That means Topos's
+congressional signal is only as fresh/accurate as those mirrors.
 
-This is a thin vertical slice, not the full system described above:
+## Phase 1 MVP — done
 
-- Form 4 filings are pulled live from SEC EDGAR (no API key required) and
-  scored into `Signal` records with a confidence heuristic based on insider
-  role and transaction size.
-- The ranking engine aggregates signals per ticker (source diversity boosts
-  score).
-- The portfolio decision engine and risk layer run on that ranked output
-  (simple top-N equal-weight + position/exposure limits).
-- The Alpaca execution layer defaults to **dry run** — it prints what it
-  would trade but submits nothing unless you pass `--execute`, and even then
-  it only talks to Alpaca's **paper trading** endpoint.
-- The dashboard is a read-only Streamlit view over the Postgres tables.
+- Form 4 filings pulled live from SEC EDGAR (no API key required).
+- Congressional trade disclosures pulled live (see caveat above).
+- All raw signals, ranked opportunities, and trade attempts stored in
+  PostgreSQL (`topos/db/models.py`).
+- Signal scoring: confidence heuristics per source (insider role + trade
+  size for Form 4; trade size for congressional trades), aggregated per
+  ticker with a multi-source-agreement bonus (`topos/ranking/ranker.py`).
+- Opportunities, raw signals, and trade history displayed in Streamlit
+  (`dashboard/app.py`).
+- Paper trades executed via Alpaca — defaults to **dry run**, only submits
+  real paper orders with `--execute` and valid Alpaca credentials.
+- Returns tracked by reading Alpaca's own paper-account equity/P&L and
+  position endpoints (`topos/execution/alpaca_client.py`) rather than
+  reimplementing portfolio accounting — shown in the dashboard's
+  Performance section once `ALPACA_API_KEY`/`ALPACA_SECRET_KEY` are set.
 
-Everything else in the architecture diagram (congressional trades, options
-flow, sentiment, etc.) is documented intent, not implemented yet — see the
-table above.
+Portfolio sizing and risk checks are intentionally simple for this phase:
+equal-weight top-N tickers above a score floor, capped at a max position
+weight and max open positions (`topos/portfolio/`, `topos/risk/`).
+
+Everything else in the architecture diagram (13F, earnings, news/social
+sentiment, options flow, analyst revisions) is documented intent for Phase
+2, not implemented yet.
 
 ## Setup
 
@@ -77,6 +90,29 @@ SEC EDGAR requires a descriptive `User-Agent` header identifying who's
 making requests (name + contact email) — see
 https://www.sec.gov/os/accessing-edgar-data. Set `SEC_EDGAR_USER_AGENT`
 accordingly.
+
+## Deploying to Render
+
+`render.yaml` defines a Blueprint with three resources:
+
+- `topos-db` — the Postgres instance.
+- `topos-dashboard` — a web service running the Streamlit dashboard
+  (Dockerfile-based, binds to Render's `$PORT`).
+- `topos-pipeline` — a cron job running `python scripts/run_pipeline.py`
+  hourly (UTC — adjust the schedule for your needs; it defaults to dry run,
+  so it won't place real trades until you also set `--execute` and Alpaca
+  keys in the dashboard).
+
+To deploy: push this repo to GitHub, then in the Render dashboard choose
+"New > Blueprint" and point it at the repo. Fill in `SEC_EDGAR_USER_AGENT`
+and (optionally) `ALPACA_API_KEY`/`ALPACA_SECRET_KEY` as secrets when
+prompted — they're marked `sync: false` in the blueprint so Render won't
+try to auto-populate them.
+
+Note: Render discontinued its free Postgres tier a while back, so
+`topos-db` is set to the `starter` plan. Check
+[render.com/pricing](https://render.com/pricing) and your dashboard before
+deploying — this repo has no way to verify current pricing at write time.
 
 ## Disclaimer
 

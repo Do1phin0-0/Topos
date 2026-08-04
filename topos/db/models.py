@@ -27,3 +27,17 @@ class RankedOpportunity(Base):
     signal_count = Column(Integer, nullable=False)
     sources = Column(JSON, nullable=False)
     rank_timestamp = Column(DateTime, default=datetime.utcnow)
+
+
+class Trade(Base):
+    __tablename__ = "trades"
+
+    id = Column(Integer, primary_key=True)
+    ticker = Column(String, nullable=False, index=True)
+    side = Column(String, nullable=False)
+    weight = Column(Float, nullable=False)
+    notional_usd = Column(Float, nullable=False)
+    status = Column(String, nullable=False)
+    broker_order_id = Column(String, nullable=True)
+    detail = Column(String, nullable=True)
+    submitted_at = Column(DateTime, default=datetime.utcnow)
