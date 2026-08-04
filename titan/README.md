@@ -17,7 +17,11 @@ Being built in small iterative steps. Current state:
 - [x] Project skeleton — FastAPI app, SQLAlchemy models (`congressional_trades`,
       `insider_trades`, `signal_scores`, `trades`), Postgres, Docker, health
       check (`GET /health`, checks DB connectivity).
-- [ ] Congressional trade tracker
+- [x] Congressional trade tracker — `POST /congress/ingest` pulls from
+      House/Senate Stock Watcher (same free source Topos uses, no official
+      structured API exists) and upserts into `congressional_trades`
+      (deduped so repeat ingestion runs don't pile up rows);
+      `GET /congress/trades` lists them, filterable by `ticker`.
 - [ ] Insider trade tracker
 - [ ] Signal scoring engine
 - [ ] Alpaca paper trading integration
