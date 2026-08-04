@@ -27,7 +27,15 @@ Being built in small iterative steps. Current state:
       direction from non-derivative transactions, and upserts into
       `insider_trades` (deduped on filing URL); `GET /insider/trades`
       lists them, filterable by `ticker`.
-- [ ] Signal scoring engine
+- [x] Signal scoring engine — `POST /scoring/run` combines
+      `congressional_trades` + `insider_trades` (last 90 days by default)
+      into a 0-100 score and BUY/SELL/HOLD recommendation per ticker,
+      persisted to `signal_scores`; `GET /scoring/scores` lists them,
+      filterable by `recommendation`. Same two principles as Topos's
+      ranking engine: direction-aware scoring (agreement raises the
+      score, disagreement pulls it down) and no single-source
+      recommendations — a ticker needs *both* trackers to have activity,
+      not just one, before it can be BUY/SELL.
 - [ ] Alpaca paper trading integration
 - [ ] Streamlit dashboard
 
