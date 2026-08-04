@@ -7,16 +7,26 @@ from topos.ranking.ranker import RankingEngine
 from topos.risk.checks import RiskManager
 from topos.signals.base import Signal
 from topos.signals.congress import CongressSignalExtractor
+from topos.signals.earnings import EarningsSignalExtractor
 from topos.signals.form4 import Form4SignalExtractor
+from topos.signals.news import NewsSignalExtractor
+from topos.signals.reddit import RedditSignalExtractor
+from topos.signals.technical import TechnicalSignalExtractor
+from topos.signals.twitter import TwitterSignalExtractor
+
+_MAX_ENRICHMENT_TICKERS = 20
 
 
-def _collect_signals(limit: int) -> list[Signal]:
-    """Each source fails independently — a dead congressional-data mirror
-    shouldn't take down Form 4 collection, or vice versa."""
+def _collect_discovery_signals(limit: int) -> list[Signal]:
+    """Sources that scan recent activity and surface their own tickers.
+    The extractor classes are looked up by name on each call (rather than
+    captured in a module-level list) so tests can patch e.g.
+    topos.pipeline.Form4SignalExtractor and have it take effect."""
     signals: list[Signal] = []
     for name, extractor_cls in [
         ("sec_form4", Form4SignalExtractor),
         ("congress", CongressSignalExtractor),
+        ("sec_8k_earnings", EarningsSignalExtractor),
     ]:
         try:
             signals.extend(extractor_cls().extract(limit=limit))
@@ -25,9 +35,30 @@ def _collect_signals(limit: int) -> list[Signal]:
     return signals
 
 
+def _collect_enrichment_signals(tickers: list[str]) -> list[Signal]:
+    """Sources that need a ticker to look at — there's no free firehose of
+    "sentiment for the whole market," so these only run against tickers the
+    discovery sources already flagged this run, not a second blind scan."""
+    signals: list[Signal] = []
+    for name, extractor_cls in [
+        ("news", NewsSignalExtractor),
+        ("reddit", RedditSignalExtractor),
+        ("twitter", TwitterSignalExtractor),
+        ("technical", TechnicalSignalExtractor),
+    ]:
+        try:
+            signals.extend(extractor_cls().extract(tickers))
+        except Exception as exc:
+            print(f"[warn] {name} extractor failed: {exc}")
+    return signals
+
+
 def run(dry_run: bool = True, account_equity: float = 100_000.0, limit: int = 40) -> None:
     init_db()
-    signals = _collect_signals(limit)
+    discovery_signals = _collect_discovery_signals(limit)
+    tickers = sorted({s.ticker for s in discovery_signals})[:_MAX_ENRICHMENT_TICKERS]
+    enrichment_signals = _collect_enrichment_signals(tickers) if tickers else []
+    signals = discovery_signals + enrichment_signals
 
     session = SessionLocal()
     try:

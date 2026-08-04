@@ -66,9 +66,11 @@ class Form4SignalExtractor:
     def extract(self, limit: int = 20) -> list[Signal]:
         signals: list[Signal] = []
         for filing in self._collector.latest_filings("4", count=limit):
-            for doc_url in self._collector.filing_documents(filing["index_url"]):
+            for doc in self._collector.filing_documents(filing["index_url"]):
+                if not doc["name"].endswith(".xml"):
+                    continue
                 try:
-                    root = self._collector.fetch_xml(doc_url)
+                    root = self._collector.fetch_xml(doc["url"])
                 except Exception:
                     continue
                 if not root.tag.endswith("ownershipDocument"):

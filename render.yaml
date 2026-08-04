@@ -51,3 +51,12 @@ services:
         sync: false
       - key: ALPACA_BASE_URL
         value: https://paper-api.alpaca.markets
+      # Optional — Reddit/Twitter sentiment are skipped (no error) if left
+      # unset. See README for what each needs (Reddit: free registered
+      # app; Twitter: paid X API plan).
+      - key: REDDIT_CLIENT_ID
+        sync: false
+      - key: REDDIT_CLIENT_SECRET
+        sync: false
+      - key: TWITTER_BEARER_TOKEN
+        sync: false

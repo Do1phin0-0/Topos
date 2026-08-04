@@ -29,13 +29,14 @@ and `evidence` payload (`topos/signals/base.py`).
 | --- | --- |
 | SEC Form 4 (insider buy/sell) | **Live** — `topos/signals/form4.py` |
 | Congressional trade disclosures | **Live** — `topos/signals/congress.py`, via House/Senate Stock Watcher (see caveat below) |
+| Earnings reports | **Live** — `topos/signals/earnings.py`, SEC 8-K Item 2.02 detection (timing only, see caveat below) |
+| News sentiment | **Live** — `topos/signals/news.py`, Google News RSS + local VADER scoring, no API key |
+| Technical indicators | **Live** — `topos/signals/technical.py`, RSI(14) + SMA 20/50 crossover from free Stooq price data |
+| Reddit sentiment | **Live, opt-in** — `topos/signals/reddit.py`, needs a free registered Reddit API app (see below) |
+| X/Twitter sentiment | **Live, opt-in** — `topos/signals/twitter.py`, needs a **paid** X API plan (see below) |
 | SEC 13F-HR (hedge fund holdings) | Collector wired, extraction is a follow-up (needs prior-quarter diffing to be meaningful) |
-| Earnings reports | Not started |
-| News sentiment | Not started — needs a provider (NewsAPI, Finnhub, etc.) |
-| Technical indicators | Not started |
 | Options activity | Not started |
 | Analyst revisions | Not started |
-| Social sentiment | Not started |
 
 **Congressional data caveat:** there is no free official structured API for
 congressional trade disclosures — the House Clerk and Senate eFD systems
@@ -43,6 +44,31 @@ only publish PDFs. Topos pulls from [House Stock Watcher](https://housestockwatc
 and [Senate Stock Watcher](https://senatestockwatcher.com), open-source
 projects that parse those official PDFs into public JSON. That means Topos's
 congressional signal is only as fresh/accurate as those mirrors.
+
+**Earnings caveat:** Topos flags 8-K filings that report Item 2.02 (the item
+issuers use to furnish an earnings press release). That's a real-time timing
+signal — "a report just dropped" — not a beat/miss signal. Actual
+EPS-vs-estimate data needs a paid provider (Alpha Vantage, Finnhub, ...),
+which isn't wired up.
+
+**Reddit caveat:** Reddit closed unauthenticated/scraped access in 2023.
+Register a free "script" app at
+[reddit.com/prefs/apps](https://www.reddit.com/prefs/apps) and set
+`REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET` — Reddit sentiment is silently
+skipped (no error) until you do.
+
+**X/Twitter caveat:** X's free API tier does not include search access at
+all as of this writing — this needs a paid Basic-tier (or higher) bearer
+token from [developer.x.com](https://developer.x.com), set as
+`TWITTER_BEARER_TOKEN`. There's no scraping fallback: getting around X's
+anti-bot measures isn't something this project does. Skipped silently until
+a token is set.
+
+**How enrichment sources pick tickers:** news, Reddit, Twitter, and
+technical indicators all need a ticker to look at — there's no free
+firehose of "sentiment for the whole market." Each pipeline run, they only
+look at tickers that Form 4 / congressional / earnings activity already
+surfaced that run (capped at 20), rather than scanning blindly.
 
 ## Phase 1 MVP — done
 
@@ -66,9 +92,15 @@ Portfolio sizing and risk checks are intentionally simple for this phase:
 equal-weight top-N tickers above a score floor, capped at a max position
 weight and max open positions (`topos/portfolio/`, `topos/risk/`).
 
-Everything else in the architecture diagram (13F, earnings, news/social
-sentiment, options flow, analyst revisions) is documented intent for Phase
-2, not implemented yet.
+## Phase 2 — done
+
+Earnings monitoring, news sentiment, Reddit sentiment, X/Twitter sentiment,
+and technical indicators — see the signal sources table above for status
+and caveats on each. Each source fails independently; one being down
+(network blip, missing credentials, upstream outage) doesn't take down the
+rest of the pipeline.
+
+13F diffing and options/analyst-revision signals are still not implemented.
 
 ## Setup
 

@@ -9,6 +9,10 @@ class Settings:
     alpaca_api_key: str
     alpaca_secret_key: str
     alpaca_base_url: str
+    reddit_client_id: str
+    reddit_client_secret: str
+    reddit_user_agent: str
+    twitter_bearer_token: str
 
 
 def load_settings() -> Settings:
@@ -24,4 +28,8 @@ def load_settings() -> Settings:
         alpaca_base_url=os.environ.get(
             "ALPACA_BASE_URL", "https://paper-api.alpaca.markets"
         ),
+        reddit_client_id=os.environ.get("REDDIT_CLIENT_ID", ""),
+        reddit_client_secret=os.environ.get("REDDIT_CLIENT_SECRET", ""),
+        reddit_user_agent=os.environ.get("REDDIT_USER_AGENT", "topos-signal-bot/0.1"),
+        twitter_bearer_token=os.environ.get("TWITTER_BEARER_TOKEN", ""),
     )

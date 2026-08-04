@@ -1,5 +1,5 @@
 import xml.etree.ElementTree as ET
-from typing import Any
+from typing import Any, ClassVar
 
 import requests
 
@@ -13,6 +13,8 @@ class SECEdgarCollector:
     """Pulls filing metadata and documents from SEC EDGAR. No API key
     required, but SEC requires a descriptive User-Agent (name + contact
     email) on every request."""
+
+    _ticker_map: ClassVar[dict[int, str] | None] = None
 
     def __init__(self) -> None:
         settings = load_settings()
@@ -44,19 +46,46 @@ class SECEdgarCollector:
                     "title": title,
                     "index_url": index_url,
                     "filed_at": updated,
+                    "cik": self._cik_from_index_url(index_url),
                 }
             )
         return filings
 
-    def filing_documents(self, index_url: str) -> list[str]:
-        """URLs of every XML document in a filing's directory."""
+    def filing_documents(self, index_url: str) -> list[dict[str, str]]:
+        """Every document (name + url) in a filing's directory."""
         base = index_url.rsplit("/", 1)[0]
         try:
             data = self._get(f"{base}/index.json").json()
         except (requests.HTTPError, ValueError):
             return []
         items = data.get("directory", {}).get("item", [])
-        return [f"{base}/{item['name']}" for item in items if item["name"].endswith(".xml")]
+        return [{"name": item["name"], "url": f"{base}/{item['name']}"} for item in items]
 
     def fetch_xml(self, url: str) -> ET.Element:
         return ET.fromstring(self._get(url).content)
+
+    def fetch_text(self, url: str) -> str:
+        return self._get(url).text
+
+    def ticker_for_cik(self, cik: int | None) -> str | None:
+        """Resolves a CIK to a trading ticker via SEC's own CIK/ticker
+        mapping — the atom feeds only give CIK + company name, not ticker."""
+        if cik is None:
+            return None
+        if SECEdgarCollector._ticker_map is None:
+            SECEdgarCollector._ticker_map = self._load_ticker_map()
+        return SECEdgarCollector._ticker_map.get(cik)
+
+    def _load_ticker_map(self) -> dict[int, str]:
+        try:
+            data = self._get(f"{BASE_URL}/files/company_tickers.json").json()
+        except (requests.HTTPError, ValueError):
+            return {}
+        return {row["cik_str"]: row["ticker"].upper() for row in data.values()}
+
+    @staticmethod
+    def _cik_from_index_url(index_url: str) -> int | None:
+        try:
+            return int(index_url.split("/edgar/data/")[1].split("/")[0])
+        except (IndexError, ValueError):
+            return None
