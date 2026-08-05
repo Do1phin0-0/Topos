@@ -1,5 +1,6 @@
 from sqlalchemy import select
 
+from topos.backtesting.prices import backfill_tickers
 from topos.db.models import Signal as SignalRow
 from topos.db.models import Trade as TradeRow
 from topos.db.session import SessionLocal, init_db
@@ -7,6 +8,7 @@ from topos.execution.alpaca_client import AlpacaExecutionClient
 from topos.portfolio.decision import PortfolioDecisionEngine
 from topos.ranking.ranker import RankingEngine
 from topos.risk.checks import RiskManager
+from topos.screening.liquidity import filter_signals, filter_tradeable
 from topos.signals.base import Signal
 from topos.signals.congress import CongressSignalExtractor
 from topos.signals.earnings import EarningsSignalExtractor
@@ -100,16 +102,31 @@ def _collect_enrichment_signals(tickers: list[str]) -> list[Signal]:
 def run(dry_run: bool = True, account_equity: float = 100_000.0, limit: int = 40) -> None:
     init_db()
     discovery_signals = _collect_discovery_signals(limit)
-    tickers = sorted({s.ticker for s in discovery_signals})[:_MAX_ENRICHMENT_TICKERS]
-    enrichment_signals = _collect_enrichment_signals(tickers) if tickers else []
-    signals = discovery_signals + enrichment_signals
+    discovered = sorted({s.ticker for s in discovery_signals})[:_MAX_ENRICHMENT_TICKERS]
 
     session = SessionLocal()
     try:
+        # Price history is fetched once per run and reused: it feeds the
+        # liquidity screen now and the backtester later.
+        if discovered:
+            backfill_tickers(session, discovered)
+
+        # Screen before enrichment, not after — an untradeable name should
+        # never reach Ranked Opportunities, and there's no point spending
+        # news/technical lookups on one either.
+        tickers, rejected = filter_tradeable(session, discovered)
+        for verdict in rejected:
+            print(f"[screened out] {verdict.ticker}: {verdict.reason}")
+
+        enrichment_signals = _collect_enrichment_signals(tickers) if tickers else []
+        signals = discovery_signals + enrichment_signals
+
         new_signals = persist_signals(session, signals)
         print(f"Persisted {new_signals} new signals ({len(signals) - new_signals} already known).")
 
-        ranked = RankingEngine().rank(signals)
+        # Rank only what's actually tradeable.
+        rankable = filter_signals(session, signals)
+        ranked = RankingEngine().rank(rankable)
         for opportunity in ranked:
             session.add(opportunity)
         session.commit()
