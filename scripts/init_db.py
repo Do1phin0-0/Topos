@@ -5,6 +5,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from topos.db.session import init_db
 
-if __name__ == "__main__":
+
+def main() -> None:
     init_db()
     print("Database initialized.")
+
+
+if __name__ == "__main__":
+    from _cli import run
+
+    run(main)

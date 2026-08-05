@@ -6,6 +6,15 @@ HOUSE_URL = "https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/al
 SENATE_URL = "https://senate-stock-watcher-data.s3-us-west-2.amazonaws.com/aggregate/all_transactions.json"
 
 
+class UpstreamUnavailable(RuntimeError):
+    """A source that used to publish is no longer serving us its data.
+
+    Separated from an ordinary HTTP error because the fix is different in
+    kind: no amount of retrying reaches a feed that has been withdrawn,
+    and a bare `403 Client Error` reads like a transient blip.
+    """
+
+
 class CongressTradeCollector:
     """Pulls congressional trade disclosures from House Stock Watcher and
     Senate Stock Watcher. There is no free official structured API for
@@ -15,6 +24,16 @@ class CongressTradeCollector:
 
     def _get_json(self, url: str) -> list[dict[str, Any]]:
         response = requests.get(url, timeout=30)
+        if response.status_code in (401, 403):
+            raise UpstreamUnavailable(
+                f"The congressional disclosure feed at {url}\n"
+                f"  refused the request ({response.status_code}). As of August 2026 both the House\n"
+                "  and Senate Stock Watcher S3 buckets return AccessDenied to everyone —\n"
+                "  the public mirrors this collector depends on have been withdrawn.\n\n"
+                "  This is not a network problem on your end and retrying will not help.\n"
+                "  Congressional signals cannot be collected until the source is replaced;\n"
+                "  the other collectors are unaffected."
+            )
         response.raise_for_status()
         return response.json()
 
