@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from topos.collectors.prices import PriceCollector
 from topos.signals.base import Signal
@@ -30,15 +30,22 @@ class TechnicalSignalExtractor:
         signals: list[Signal] = []
         for ticker in tickers:
             try:
-                closes = self._collector.daily_closes(ticker, days=90)
+                bars = self._collector.daily_bars(ticker)[-90:]
             except Exception:
                 continue
-            signal = self._score(ticker, closes)
+            if not bars:
+                continue
+            # A technical reading is "as of" the last bar it was computed
+            # from, which is the last session the market actually traded —
+            # not the wall-clock moment we ran the scan.
+            signal = self._score(ticker, [b.close for b in bars], as_of=bars[-1].date)
             if signal:
                 signals.append(signal)
         return signals
 
-    def _score(self, ticker: str, closes: list[float]) -> Signal | None:
+    def _score(
+        self, ticker: str, closes: list[float], as_of: date | None = None
+    ) -> Signal | None:
         rsi = _rsi(closes)
         sma20 = _sma(closes, 20)
         sma50 = _sma(closes, 50)
@@ -55,8 +62,13 @@ class TechnicalSignalExtractor:
             strength = abs(sma20 - sma50) / sma50
 
         confidence = max(0.0, min(1.0, 0.2 + min(strength, 1.0) * 0.5))
+        event_date = as_of or datetime.now(timezone.utc).date()
         return Signal(
             timestamp=datetime.now(timezone.utc),
+            event_date=event_date,
+            # One reading per ticker per session — recomputing the same
+            # bar's indicators must not stack up duplicate signals.
+            dedup_key=f"technical:{ticker}:{event_date.isoformat()}",
             source="technical",
             ticker=ticker,
             confidence=round(confidence, 3),

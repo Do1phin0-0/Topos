@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from topos.db.models import RankedOpportunity
 from topos.portfolio.decision import PortfolioDecisionEngine, TargetPosition
@@ -11,6 +11,8 @@ def _signal(ticker: str, source: str, confidence: float, direction: str | None =
     evidence = {"direction": direction} if direction else {}
     return Signal(
         timestamp=datetime.now(timezone.utc),
+        event_date=date(2026, 7, 1),
+        dedup_key=f"{source}:{ticker}:{direction}",
         source=source,
         ticker=ticker,
         confidence=confidence,

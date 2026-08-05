@@ -1,3 +1,5 @@
+from sqlalchemy import select
+
 from topos.db.models import Signal as SignalRow
 from topos.db.models import Trade as TradeRow
 from topos.db.session import SessionLocal, init_db
@@ -16,6 +18,46 @@ from topos.signals.technical import TechnicalSignalExtractor
 from topos.signals.twitter import TwitterSignalExtractor
 
 _MAX_ENRICHMENT_TICKERS = 20
+
+
+def persist_signals(session, signals: list[Signal]) -> int:
+    """Stores signals we haven't seen before, keyed on dedup_key.
+
+    The pipeline is meant to run on a schedule over overlapping windows —
+    the same Form 4 filing shows up in the feed for hours. Without this,
+    every run re-inserted the same filings as fresh signals, which both
+    inflates a ticker's apparent signal count in ranking and makes the
+    stored history useless for backtesting. Returns the number inserted.
+    """
+    seen = {
+        row[0]
+        for row in session.execute(
+            select(SignalRow.dedup_key).where(
+                SignalRow.dedup_key.in_([s.dedup_key for s in signals] or [""])
+            )
+        ).all()
+    }
+
+    inserted = 0
+    for signal in signals:
+        if signal.dedup_key in seen:
+            continue
+        seen.add(signal.dedup_key)  # guard against duplicates within one batch
+        session.add(
+            SignalRow(
+                timestamp=signal.timestamp,
+                event_date=signal.event_date,
+                dedup_key=signal.dedup_key,
+                source=signal.source,
+                ticker=signal.ticker,
+                confidence=signal.confidence,
+                evidence=signal.evidence,
+            )
+        )
+        inserted += 1
+
+    session.commit()
+    return inserted
 
 
 def _collect_discovery_signals(limit: int) -> list[Signal]:
@@ -64,17 +106,8 @@ def run(dry_run: bool = True, account_equity: float = 100_000.0, limit: int = 40
 
     session = SessionLocal()
     try:
-        for signal in signals:
-            session.add(
-                SignalRow(
-                    timestamp=signal.timestamp,
-                    source=signal.source,
-                    ticker=signal.ticker,
-                    confidence=signal.confidence,
-                    evidence=signal.evidence,
-                )
-            )
-        session.commit()
+        new_signals = persist_signals(session, signals)
+        print(f"Persisted {new_signals} new signals ({len(signals) - new_signals} already known).")
 
         ranked = RankingEngine().rank(signals)
         for opportunity in ranked:

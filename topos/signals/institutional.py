@@ -1,5 +1,5 @@
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from topos.collectors.openfigi import OpenFigiCollector
 from topos.collectors.sec_edgar import SECEdgarCollector
@@ -7,6 +7,16 @@ from topos.signals.base import Signal
 
 _INCREASE_THRESHOLD = 0.10  # 10%+ share increase, or a brand-new position
 _MAX_FILERS_PER_RUN = 5  # each filer costs a filing_history call + 2 holdings tables
+
+
+def _parse_filed_date(raw: str | None) -> date | None:
+    """The atom feed's `updated` field, e.g. '2026-08-05T14:31:02-04:00'."""
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(raw[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
 
 
 def _strip_namespaces(elem: ET.Element) -> ET.Element:
@@ -71,6 +81,12 @@ class InstitutionalSignalExtractor:
         if not increases:
             return []
 
+        # 13F holdings are disclosed with a lag, but the filing date is
+        # when the market could first act on them — that's the event.
+        event_date = _parse_filed_date(current_filing.get("filed_at"))
+        if event_date is None:
+            return []
+
         tickers = self._figi.cusips_to_tickers(list(increases.keys()))
         signals = []
         for cusip, change in increases.items():
@@ -80,6 +96,9 @@ class InstitutionalSignalExtractor:
             signals.append(
                 Signal(
                     timestamp=datetime.now(timezone.utc),
+                    event_date=event_date,
+                    # One filer's disclosed change in one holding.
+                    dedup_key=f"institutional_13f:{current_filing['index_url']}:{cusip}",
                     source="institutional_13f",
                     ticker=ticker,
                     confidence=change["confidence"],

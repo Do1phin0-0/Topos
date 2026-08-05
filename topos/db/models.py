@@ -17,9 +17,16 @@ Base = declarative_base()
 
 class Signal(Base):
     __tablename__ = "signals"
+    __table_args__ = (UniqueConstraint("dedup_key", name="uq_signals_dedup_key"),)
 
     id = Column(Integer, primary_key=True)
+    # When we observed the signal.
     timestamp = Column(DateTime, nullable=False)
+    # When the underlying event actually happened — what backtesting
+    # measures forward returns from.
+    event_date = Column(Date, nullable=False, index=True)
+    # Stable natural identity, so repeat ingestion doesn't duplicate.
+    dedup_key = Column(String, nullable=False)
     source = Column(String, nullable=False, index=True)
     ticker = Column(String, nullable=False, index=True)
     confidence = Column(Float, nullable=False)

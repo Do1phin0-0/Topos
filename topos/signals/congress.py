@@ -1,5 +1,5 @@
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 from topos.collectors.congress import CongressTradeCollector
@@ -29,12 +29,15 @@ def _direction(txn_type: str | None) -> str:
     return "neutral"
 
 
-def _parse_timestamp(record: dict[str, Any]) -> datetime:
+def _parse_event_date(record: dict[str, Any]) -> date | None:
+    """The date the member actually traded. A record we can't date is
+    dropped rather than stamped with today's date — backdating it would
+    corrupt any forward return measured from it."""
     raw = record.get("transaction_date") or record.get("disclosure_date")
     try:
-        return datetime.strptime(raw, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        return datetime.strptime(raw, "%Y-%m-%d").date()
     except (TypeError, ValueError):
-        return datetime.now(timezone.utc)
+        return None
 
 
 def extract_congress_signal(record: dict[str, Any]) -> Signal | None:
@@ -52,9 +55,19 @@ def extract_congress_signal(record: dict[str, Any]) -> Signal | None:
 
     owner = record.get("representative") or record.get("senator") or "unknown"
 
+    event_date = _parse_event_date(record)
+    if event_date is None:
+        return None
+
+    chamber = record.get("chamber", "unknown")
+
     return Signal(
-        timestamp=_parse_timestamp(record),
-        source=f"congress_{record.get('chamber', 'unknown')}",
+        timestamp=datetime.now(timezone.utc),
+        event_date=event_date,
+        # Stock Watcher records carry no stable upstream id, so identity
+        # is the disclosure itself: who traded what, which way, when.
+        dedup_key=f"congress_{chamber}:{owner}:{ticker}:{event_date.isoformat()}:{direction}",
+        source=f"congress_{chamber}",
         ticker=ticker,
         confidence=round(confidence, 3),
         evidence={

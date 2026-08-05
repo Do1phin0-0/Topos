@@ -7,9 +7,9 @@ from topos.signals.earnings import EarningsSignalExtractor
 def test_extract_flags_only_item_202_filings_with_resolvable_tickers():
     mock_collector = MagicMock()
     mock_collector.latest_filings.return_value = [
-        {"index_url": "https://sec.gov/Archives/edgar/data/123/abc-index.htm", "cik": 123},
-        {"index_url": "https://sec.gov/Archives/edgar/data/456/def-index.htm", "cik": 456},
-        {"index_url": "https://sec.gov/Archives/edgar/data/789/ghi-index.htm", "cik": 789},
+        {"index_url": "https://sec.gov/Archives/edgar/data/123/abc-index.htm", "cik": 123, "filed_at": "2026-08-01T14:31:02-04:00"},
+        {"index_url": "https://sec.gov/Archives/edgar/data/456/def-index.htm", "cik": 456, "filed_at": "2026-08-01T14:32:02-04:00"},
+        {"index_url": "https://sec.gov/Archives/edgar/data/789/ghi-index.htm", "cik": 789, "filed_at": "2026-08-01T14:33:02-04:00"},
     ]
     mock_collector.ticker_for_cik.side_effect = lambda cik: {123: "ACME", 789: "WIDG"}.get(cik)
     mock_collector.fetch_text.side_effect = lambda url: (

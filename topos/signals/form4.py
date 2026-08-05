@@ -1,5 +1,5 @@
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from topos.collectors.sec_edgar import SECEdgarCollector
 from topos.signals.base import Signal
@@ -8,6 +8,15 @@ from topos.signals.base import Signal
 def _text(el: ET.Element, path: str, default: str | None = None) -> str | None:
     node = el.find(path)
     return node.text.strip() if node is not None and node.text else default
+
+
+def _parse_date(raw: str | None) -> date | None:
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(raw[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
 
 
 def extract_form4_signal(xml_root: ET.Element, filing_url: str) -> Signal | None:
@@ -22,6 +31,7 @@ def extract_form4_signal(xml_root: ET.Element, filing_url: str) -> Signal | None
     total_value = 0.0
     net_shares = 0.0
     codes: list[str] = []
+    transaction_dates: list[date] = []
     for txn in xml_root.findall("nonDerivativeTable/nonDerivativeTransaction"):
         code = _text(txn, "transactionCoding/transactionCode")
         if not code:
@@ -32,8 +42,21 @@ def extract_form4_signal(xml_root: ET.Element, filing_url: str) -> Signal | None
         codes.append(code)
         net_shares += shares if disposed == "A" else -shares
         total_value += shares * price
+        txn_date = _parse_date(_text(txn, "transactionDate/value"))
+        if txn_date:
+            transaction_dates.append(txn_date)
 
     if not codes:
+        return None
+
+    # The insider's actual trade date, not when we scraped the filing.
+    # periodOfReport is the fallback; a filing we can't date at all is
+    # dropped rather than backdated to today, which would corrupt any
+    # forward-return measured from it.
+    event_date = min(transaction_dates) if transaction_dates else _parse_date(
+        _text(xml_root, "periodOfReport")
+    )
+    if event_date is None:
         return None
 
     direction = "buy" if net_shares > 0 else "sell" if net_shares < 0 else "neutral"
@@ -43,6 +66,10 @@ def extract_form4_signal(xml_root: ET.Element, filing_url: str) -> Signal | None
 
     return Signal(
         timestamp=datetime.now(timezone.utc),
+        event_date=event_date,
+        # One Form 4 filing yields at most one signal, so the filing URL
+        # is the natural identity.
+        dedup_key=f"sec_form4:{filing_url}",
         source="sec_form4",
         ticker=ticker.upper(),
         confidence=round(confidence, 3),

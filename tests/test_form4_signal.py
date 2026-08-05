@@ -12,6 +12,7 @@ _SAMPLE_XML = """<?xml version="1.0"?>
   </reportingOwner>
   <nonDerivativeTable>
     <nonDerivativeTransaction>
+      <transactionDate><value>2026-07-15</value></transactionDate>
       <transactionCoding><transactionCode>P</transactionCode></transactionCoding>
       <transactionAmounts>
         <transactionShares><value>5000</value></transactionShares>

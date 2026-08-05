@@ -42,8 +42,14 @@ class RedditSignalExtractor:
         direction = "buy" if avg > 0 else "sell"
         engagement = sum(p.get("score", 0) for p in posts)
         confidence = max(0.0, min(1.0, 0.15 + abs(avg) * 0.5 + min(engagement / 5000, 0.25)))
+        observed_at = datetime.now(timezone.utc)
+        event_date = observed_at.date()
         return Signal(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=observed_at,
+            event_date=event_date,
+            # A daily sentiment aggregate: one snapshot per ticker per day,
+            # so re-running the scan refreshes rather than stacks.
+            dedup_key=f"reddit_sentiment:{ticker}:{event_date.isoformat()}",
             source="reddit_sentiment",
             ticker=ticker,
             confidence=round(confidence, 3),

@@ -52,7 +52,7 @@ def test_extract_for_filer_resolves_cusips_to_tickers_and_skips_unresolved():
     mock_collector = MagicMock()
     mock_figi = MagicMock()
 
-    current_filing = {"index_url": "https://sec.gov/cur-index.htm"}
+    current_filing = {"index_url": "https://sec.gov/cur-index.htm", "filed_at": "2026-08-01T14:31:02-04:00"}
     prior_filing = {"index_url": "https://sec.gov/prior-index.htm", "filing_date": "2026-05-01"}
 
     extractor = InstitutionalSignalExtractor(collector=mock_collector, figi=mock_figi)
@@ -82,7 +82,7 @@ def test_extract_returns_empty_when_no_prior_filing_exists():
     extractor._holdings_for_filing = MagicMock(return_value={"111": {"shares": 100.0, "issuer": "X"}})
     extractor._find_prior_13f = MagicMock(return_value=None)
 
-    signals = extractor._extract_for_filer(cik=1, current_filing={"index_url": "https://sec.gov/a-index.htm"})
+    signals = extractor._extract_for_filer(cik=1, current_filing={"index_url": "https://sec.gov/a-index.htm", "filed_at": "2026-08-01T14:31:02-04:00"})
 
     assert signals == []
     mock_figi.cusips_to_tickers.assert_not_called()
