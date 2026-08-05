@@ -48,7 +48,12 @@ class RankedOpportunity(Base):
     # penalties). Nullable so it can be added to an existing deployment
     # without discarding ranking history, which is the backtester's
     # sample — rows predating attribution simply have none.
-    attribution = Column(JSON, nullable=True)
+    #
+    # none_as_null=True because the default writes Python None as a JSON
+    # `null` *value*, not SQL NULL — two representations of "no
+    # attribution" that `IS NULL` cannot both find, which would silently
+    # misclassify rows when telling old scores apart from new ones.
+    attribution = Column(JSON(none_as_null=True), nullable=True)
     rank_timestamp = Column(DateTime, default=datetime.utcnow)
 
 

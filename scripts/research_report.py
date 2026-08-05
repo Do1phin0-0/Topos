@@ -19,6 +19,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from sqlalchemy import String, cast, or_
+
 from topos.backtesting.evaluate import evaluate_score_buckets, evaluate_signals
 from topos.backtesting.research import (
     MIN_SAMPLE_FOR_CONFIDENCE,
@@ -48,6 +50,47 @@ def _table(rows: list[list[str]], headers: list[str]) -> str:
     return "\n".join(lines)
 
 
+def _no_attribution():
+    """Matches rankings carrying no score attribution, however it is stored.
+
+    Rows that predate the column got SQL NULL from `ALTER TABLE ADD
+    COLUMN`. Rows written afterwards with an explicit `None` may hold a
+    JSON `null` value instead, which `IS NULL` does not match. Both mean
+    the same thing, and missing either one misreports the split.
+    """
+    return or_(
+        RankedOpportunity.attribution.is_(None),
+        cast(RankedOpportunity.attribution, String) == "null",
+    )
+
+
+def formula_mix_warning(legacy: int, current: int) -> str | None:
+    """Rankings written before the additive rewrite have no attribution.
+
+    Their scores came from the old multiplicative formula, so a "70-80"
+    there is not the same quantity as a "70-80" today. Bucketing them
+    together blurs exactly the relationship this report is trying to
+    measure, and the reader has no way to tell from the numbers alone.
+    """
+    if legacy and current:
+        share = legacy / (legacy + current)
+        return (
+            f"> **Mixed scoring formulas.** {share:.0%} of these rankings predate "
+            "the additive rewrite. Their scores came from a different formula, so "
+            "score buckets below blend two scales and the correlation is measured "
+            "across both. Treat the score-based sections as indicative until the "
+            "current-formula count alone clears the sample thresholds."
+        )
+    if legacy:
+        return (
+            "> **All rankings predate the additive rewrite.** Every score below "
+            "comes from the older multiplicative formula, so these results "
+            "validate that formula rather than the one now in use. Re-run the "
+            "pipeline to start accumulating current-formula rankings."
+        )
+    return None
+
+
 def build_report(session, horizon: int) -> str:
     out: list[str] = []
     w = out.append
@@ -55,6 +98,9 @@ def build_report(session, horizon: int) -> str:
     signal_count = session.query(SignalRow).count()
     ranked_count = session.query(RankedOpportunity).count()
     price_tickers = session.query(PriceBar.ticker).distinct().count()
+
+    legacy_ranked = session.query(RankedOpportunity).filter(_no_attribution()).count()
+    current_ranked = ranked_count - legacy_ranked
 
     w("# Signal validation research report")
     w("")
@@ -67,11 +113,18 @@ def build_report(session, horizon: int) -> str:
         [
             ["signals stored", str(signal_count)],
             ["ranked opportunities", str(ranked_count)],
+            ["  — scored by the current (additive) formula", str(current_ranked)],
+            ["  — scored by the older (multiplicative) formula", str(legacy_ranked)],
             ["tickers with price history", str(price_tickers)],
         ],
         ["item", "count"],
     ))
     w("")
+
+    warning = formula_mix_warning(legacy_ranked, current_ranked)
+    if warning:
+        w(warning)
+        w("")
 
     if signal_count == 0 or ranked_count == 0 or price_tickers == 0:
         w("> **No data to analyse.** Run the pipeline and the congressional")
