@@ -4,6 +4,11 @@ sqlalchemy>=2.0
 psycopg2-binary>=2.9
 requests>=2.31
 streamlit>=1.35
+# See ../requirements.txt for why: starlette 1.4.0 broke Streamlit's
+# bundled gzip middleware (missing required kwarg thread_minimum_size),
+# still unfixed as of the latest Streamlit release. Affects the dashboard
+# service here the same way it did Topos's.
+starlette<1.4.0
 python-dotenv>=1.0
 vaderSentiment>=3.3
 pytest>=8.0
