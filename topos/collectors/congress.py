@@ -30,7 +30,17 @@ class CongressTradeCollector:
             row["chamber"] = "senate"
         return rows
 
-    def latest_transactions(self, limit: int = 200) -> list[dict[str, Any]]:
+    def all_transactions(self) -> list[dict[str, Any]]:
+        """Every disclosure both mirrors publish, newest first.
+
+        These endpoints return the complete archive (House Stock Watcher
+        covers 2020 onward) on every request, so historical backfill costs
+        no more than a normal poll — the data was already being fetched
+        and then discarded by the truncation in latest_transactions().
+        """
         combined = self.house_transactions() + self.senate_transactions()
         combined.sort(key=lambda r: r.get("transaction_date") or "", reverse=True)
-        return combined[:limit]
+        return combined
+
+    def latest_transactions(self, limit: int = 200) -> list[dict[str, Any]]:
+        return self.all_transactions()[:limit]

@@ -193,6 +193,24 @@ python scripts/run_backtest.py --group-by confidence --horizons 5,20
 The same score-bucket table is in the dashboard's **Signal Validation**
 section.
 
+### Accelerating validation with backfill
+
+Waiting for live accumulation is slow. Congressional trades are the
+cheapest history to backfill by a wide margin — the House/Senate Stock
+Watcher endpoints return their entire archive (2020 onward) on every
+request, so the pipeline was already downloading years of disclosures and
+discarding all but the most recent rows.
+
+```bash
+python scripts/backfill_congress.py --since 2024-01-01 --skip-prices  # see the scale first
+python scripts/backfill_congress.py --since 2024-01-01                # then fetch prices
+```
+
+Price backfill is the slow half (one Stooq request per ticker, rate
+limited), so run with `--skip-prices` first to see how many tickers
+you'd be committing to. `docs/DATA_LINEAGE.md` covers what's backfillable
+for the other seven sources and what isn't worth pursuing.
+
 ### Reading the results honestly
 
 - **Returns are direction-adjusted.** A SELL signal that correctly called
