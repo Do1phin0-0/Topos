@@ -1,6 +1,15 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, Column, DateTime, Float, Integer, String
+from sqlalchemy import (
+    JSON,
+    Column,
+    Date,
+    DateTime,
+    Float,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -29,6 +38,26 @@ class RankedOpportunity(Base):
     signal_count = Column(Integer, nullable=False)
     sources = Column(JSON, nullable=False)
     rank_timestamp = Column(DateTime, default=datetime.utcnow)
+
+
+class PriceBar(Base):
+    """Cached daily OHLCV history. Backtesting needs to look up "what was
+    this ticker's price on date X" and "what did it do for the N days
+    after" — that can't come from a live API call at scoring time, so
+    bars are stored once and reused."""
+
+    __tablename__ = "price_bars"
+    __table_args__ = (UniqueConstraint("ticker", "date", name="uq_price_bars_ticker_date"),)
+
+    id = Column(Integer, primary_key=True)
+    ticker = Column(String, nullable=False, index=True)
+    date = Column(Date, nullable=False, index=True)
+    open = Column(Float, nullable=False)
+    high = Column(Float, nullable=False)
+    low = Column(Float, nullable=False)
+    close = Column(Float, nullable=False)
+    volume = Column(Float, nullable=False)
+    ingested_at = Column(DateTime, default=datetime.utcnow)
 
 
 class Trade(Base):
