@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 
 from topos.db.models import RankedOpportunity
 from topos.ranking.attribution import build_breakdown
@@ -27,12 +27,23 @@ class RankingEngine:
        score up, but it caps out at HOLD alone.
     """
 
-    def rank(self, signals: list[Signal]) -> list[RankedOpportunity]:
+    def rank(
+        self, signals: list[Signal], as_of: date | None = None
+    ) -> list[RankedOpportunity]:
+        """Rank signals as of `as_of` (default: now).
+
+        Passing a historical date makes this a point-in-time snapshot:
+        staleness is measured against that date, and the ranking is
+        stamped with it, so forward returns measured from the stamp are
+        measured from the moment the ranking claims to represent.
+        """
         by_ticker: dict[str, list[Signal]] = defaultdict(list)
         for signal in signals:
             by_ticker[signal.ticker].append(signal)
 
-        ranked = [self._score_ticker(ticker, s) for ticker, s in by_ticker.items()]
+        ranked = [
+            self._score_ticker(ticker, s, as_of=as_of) for ticker, s in by_ticker.items()
+        ]
         ranked.sort(key=lambda r: r.score, reverse=True)
         return ranked
 
@@ -62,5 +73,15 @@ class RankingEngine:
             # show why a ticker scored what it did without recomputing
             # against signals that may have changed since.
             attribution=breakdown.to_dict(),
-            rank_timestamp=datetime.now(timezone.utc),
+            rank_timestamp=(
+                datetime.now(timezone.utc)
+                if as_of is None
+                # Forward returns anchor on this stamp's *date*: a
+                # replayed ranking enters at the close of its own day —
+                # the standard trade-at-close convention. The fixed time
+                # exists so replaying the same date twice produces an
+                # identical stamp, which is what lets a re-run replace
+                # its own rows instead of duplicating them.
+                else datetime.combine(as_of, time(20, 0), tzinfo=timezone.utc)
+            ),
         )
