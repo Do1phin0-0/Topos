@@ -32,7 +32,7 @@ and `evidence` payload (`topos/signals/base.py`).
 | Earnings reports | **Live** — `topos/signals/earnings.py`, SEC 8-K Item 2.02 detection (timing only, see caveat below) |
 | News sentiment | **Live** — `topos/signals/news.py`, Google News RSS + local VADER scoring, no API key |
 | Technical indicators | **Live** — `topos/signals/technical.py`, RSI(14) + SMA 20/50 crossover from free Stooq price data |
-| Reddit sentiment | **Live, opt-in** — `topos/signals/reddit.py`, needs a free registered Reddit API app (see below) |
+| Reddit sentiment | Blocked — `topos/signals/reddit.py` is built and ready, but Reddit no longer grants the API access it needs (see below) |
 | X/Twitter sentiment | **Live, opt-in** — `topos/signals/twitter.py`, needs a **paid** X API plan (see below) |
 | Institutional ownership (13F) | **Live** — `topos/signals/institutional.py`, diffs a fund's 13F-HR against its own prior quarter (see caveat below) |
 | Options activity | Not started |
@@ -51,11 +51,16 @@ signal — "a report just dropped" — not a beat/miss signal. Actual
 EPS-vs-estimate data needs a paid provider (Alpha Vantage, Finnhub, ...),
 which isn't wired up.
 
-**Reddit caveat:** Reddit closed unauthenticated/scraped access in 2023.
-Register a free "script" app at
-[reddit.com/prefs/apps](https://www.reddit.com/prefs/apps) and set
-`REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET` — Reddit sentiment is silently
-skipped (no error) until you do.
+**Reddit caveat:** Reddit closed unauthenticated/scraped access in 2023, and
+as of its 2026 "Responsible Builder Policy" has gone further — self-serve
+creation of new API apps is now blocked entirely, and the legacy Data API
+(what `topos/signals/reddit.py` targets) is gated to applicants with "a
+valid moderation use case." A stock-sentiment bot doesn't qualify, so this
+signal is currently not obtainable through legitimate means, not just
+inconvenient to set up. The code is fully built and will work the moment
+`REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET` are set (silently skipped, no
+error, until then) — kept in case Reddit's policy changes or a qualifying
+use case comes along, but don't expect to unblock it soon.
 
 **X/Twitter caveat:** X's free API tier does not include search access at
 all as of this writing — this needs a paid Basic-tier (or higher) bearer
