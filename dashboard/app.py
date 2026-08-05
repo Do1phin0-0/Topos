@@ -104,6 +104,102 @@ if ranked:
 else:
     st.info("No ranked opportunities yet. Run `python scripts/run_pipeline.py`.")
 
+st.subheader("Why did it score that?")
+if ranked:
+    # Most recent ranking per ticker; earlier runs would otherwise show
+    # the same ticker several times with different scores.
+    latest_by_ticker: dict[str, RankedOpportunity] = {}
+    for opportunity in ranked:
+        latest_by_ticker.setdefault(opportunity.ticker, opportunity)
+
+    explainable = [t for t, o in latest_by_ticker.items() if o.attribution]
+    if not explainable:
+        st.info(
+            "These rankings predate score attribution. Re-run the pipeline "
+            "to record the breakdown for new rankings."
+        )
+    else:
+        chosen = st.selectbox("Ticker", sorted(explainable))
+        opportunity = latest_by_ticker[chosen]
+        attribution = opportunity.attribution
+
+        badge = {"BUY": "🟢 BUY", "SELL": "🔴 SELL"}.get(
+            opportunity.recommendation, "⚪ HOLD"
+        )
+        left, right = st.columns(2)
+        left.metric("Combined score", f"{opportunity.score:.2f}/100")
+        right.metric("Recommendation", badge)
+
+        rows = [
+            {
+                "component": f"{c['source']}  ({c['signal_count']} signal(s), {c['direction']})",
+                "points": round(c["points"], 2),
+                # A dissenting source still adds to the raw strength base;
+                # its disagreement is charged once, below, in the conflict
+                # penalty. Say so, or the row reads as a bearish source
+                # somehow strengthening a bullish case.
+                "note": (
+                    "agrees with majority"
+                    if c["aligned"]
+                    else "disagrees — charged in the conflict penalty below"
+                ),
+            }
+            for c in attribution["contributions"]
+        ]
+        rows.append(
+            {
+                "component": "— base from sources —",
+                "points": round(attribution["base_points"], 2),
+                "note": "sum of contributions above",
+            }
+        )
+        for adjustment in attribution["adjustments"]:
+            rows.append(
+                {
+                    "component": adjustment["label"],
+                    "points": round(adjustment["points"], 2),
+                    "note": adjustment["detail"],
+                }
+            )
+        rows.append(
+            {
+                "component": "= FINAL SCORE",
+                "points": round(opportunity.score, 2),
+                "note": f"net direction {attribution['net_direction']:+.2f}",
+            }
+        )
+        st.dataframe(rows)
+
+        contribution_points = {
+            c["source"]: c["points"] for c in attribution["contributions"]
+        }
+        if contribution_points:
+            st.caption(
+                "Raw strength contributed per source (before agreement "
+                "bonuses and conflict penalties)"
+            )
+            st.bar_chart(contribution_points)
+
+        # Surface any mismatch rather than presenting a breakdown that
+        # doesn't reconcile to the score it claims to explain.
+        total = attribution["base_points"] + sum(
+            a["points"] for a in attribution["adjustments"]
+        )
+        if abs(total - opportunity.score) > 0.01:
+            st.error(
+                f"Breakdown does not reconcile: parts sum to {total:.2f} but the "
+                f"stored score is {opportunity.score:.2f}."
+            )
+
+        if opportunity.recommendation == "HOLD" and len(attribution["contributions"]) < 2:
+            st.caption(
+                "HOLD because only one source has a view — a BUY or SELL "
+                "requires at least two sources agreeing on direction, "
+                "however strong a single signal is."
+            )
+else:
+    st.caption("Rank some opportunities first to see a score breakdown.")
+
 st.header("Signal Validation")
 st.caption(
     "Does a higher score actually earn a higher return? Returns are "
