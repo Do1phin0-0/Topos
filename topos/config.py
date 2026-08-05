@@ -1,5 +1,21 @@
 import os
 from dataclasses import dataclass
+from pathlib import Path
+
+try:  # pragma: no cover - exercised implicitly whenever the package imports
+    from dotenv import load_dotenv
+
+    # The README tells you to `cp .env.example .env`, and python-dotenv has
+    # always been a dependency, but nothing actually read the file — so
+    # locally every variable had to be exported by hand each session, while
+    # Docker worked because Compose injects them directly.
+    #
+    # override=False so an explicitly exported variable still wins over the
+    # file: a one-off `$env:DATABASE_URL = ...` should point at that
+    # database, not silently fall back to whatever .env holds.
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
+except ImportError:  # python-dotenv absent: environment variables still work
+    pass
 
 
 @dataclass(frozen=True)
