@@ -13,8 +13,16 @@ from topos.execution.alpaca_client import AlpacaExecutionClient
 st.set_page_config(page_title="Topos", layout="wide")
 st.title("Topos — Investment Signal Dashboard")
 
-init_db()
-session = SessionLocal()
+try:
+    init_db()
+    session = SessionLocal()
+except Exception as exc:
+    st.error(
+        f"Could not connect to the database: {exc}\n\n"
+        "If this just deployed, the database may still be provisioning — "
+        "try refreshing in a minute. Otherwise check DATABASE_URL."
+    )
+    st.stop()
 
 st.header("Performance")
 settings = load_settings()
