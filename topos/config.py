@@ -16,10 +16,20 @@ class Settings:
     openfigi_api_key: str
 
 
+def _normalize_database_url(url: str) -> str:
+    """Render (and Heroku) hand out `postgres://` URLs, which SQLAlchemy 2.0
+    refuses to parse — it only accepts `postgresql://`. Copying the URL
+    straight out of the Render dashboard would otherwise fail with an
+    opaque dialect error before anything else runs."""
+    if url.startswith("postgres://"):
+        return "postgresql://" + url[len("postgres://") :]
+    return url
+
+
 def load_settings() -> Settings:
     return Settings(
-        database_url=os.environ.get(
-            "DATABASE_URL", "postgresql://topos:topos@localhost:5432/topos"
+        database_url=_normalize_database_url(
+            os.environ.get("DATABASE_URL", "postgresql://topos:topos@localhost:5432/topos")
         ),
         sec_user_agent=os.environ.get(
             "SEC_EDGAR_USER_AGENT", "Topos Research contact@example.com"
