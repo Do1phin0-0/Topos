@@ -214,6 +214,25 @@ section.
 a verdict on Topos's scoring.** That requires accumulated live history.
 Nothing here yet says the score predicts returns.
 
+### Required migration for existing deployments
+
+Phase 2 added `event_date` and `dedup_key` to `signals` as NOT NULL
+columns. `create_all()` only creates missing *tables* — it will not add
+columns to one that already exists, so an already-deployed database
+silently keeps the old schema and **the next pipeline run fails with
+"column event_date does not exist"**. Run once against the deployed
+database before redeploying:
+
+```bash
+python scripts/migrate_phase2.py            # report what needs doing
+python scripts/migrate_phase2.py --apply    # drop and recreate `signals`
+```
+
+Existing rows are discarded rather than migrated forward: they were
+stamped with scrape time instead of event time and duplicated on every
+scheduled run, so their real event dates were never recorded and can't be
+reconstructed. `price_bars` and `ranked_opportunities` are unaffected.
+
 ## Setup
 
 ```bash
