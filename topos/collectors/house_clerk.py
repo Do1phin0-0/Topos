@@ -83,6 +83,9 @@ class BackfillResult:
     failures: list[tuple[str, str]] = field(default_factory=list)
     drops: Counter = field(default_factory=Counter)
     samples: list[tuple[str, str]] = field(default_factory=list)
+    # reason -> a few of the rows discarded for it, so the classification
+    # can be checked by eye instead of taken on trust.
+    dropped_examples: dict[str, list[str]] = field(default_factory=dict)
 
     @property
     def parse_rate(self) -> float | None:
@@ -260,6 +263,12 @@ class HouseClerkCollector:
                 ptr_link=filing.pdf_url,
             )
             result.drops.update(outcome.drops)
+
+            if keep_samples:
+                for reason, row in outcome.dropped_rows:
+                    kept = result.dropped_examples.setdefault(reason, [])
+                    if len(kept) < keep_samples:
+                        kept.append(row)
 
             if outcome.records:
                 result.filings_with_transactions += 1

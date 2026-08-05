@@ -84,6 +84,7 @@ def main() -> None:
     records = []
     drops = Counter()
     samples: list[tuple[str, str]] = []
+    examples: dict[str, list[str]] = {}
 
     print(f"Fetching House Clerk disclosure archives for {years}...")
     for year in years:
@@ -91,7 +92,7 @@ def main() -> None:
             result = collector.transactions(
                 year,
                 limit=args.max_filings or None,
-                keep_samples=2 if args.diagnose else 0,
+                keep_samples=4 if args.diagnose else 0,
             )
         except HouseClerkUnavailable as error:
             # A year the Clerk has not published yet is expected, not fatal.
@@ -107,6 +108,9 @@ def main() -> None:
         records.extend(result.transactions)
         drops.update(result.drops)
         samples.extend(result.samples)
+        for reason, rows in result.dropped_examples.items():
+            kept = examples.setdefault(reason, [])
+            kept.extend(rows[: max(0, 4 - len(kept))])
 
     if args.diagnose:
         print()
@@ -118,11 +122,20 @@ def main() -> None:
         else:
             print("No rows were dropped.")
 
-        # "no ticker" is the expected majority — bonds, property, private
-        # holdings. The others are the ones that would mean lost data.
+        # "no ticker" is expected to dominate — bonds, property, private
+        # holdings. But a stock whose ticker is written in an unrecognised
+        # form lands in that same bucket, and the two are only
+        # distinguishable by looking at the rows themselves.
+        for reason, rows in examples.items():
+            print(f"\n--- example rows dropped as '{reason}' " + "-" * 30)
+            for row in rows:
+                print(f"  {row[:160]}")
+
+        # The others mean a layout the parser cannot read at all.
         for doc_id, text in samples:
             print(f"\n--- unreadable filing {doc_id} " + "-" * 40)
             print("\n".join(text.splitlines()[:45]))
+
         print("\nStopping (--diagnose); nothing was ingested.")
         return
 

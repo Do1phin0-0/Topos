@@ -120,6 +120,11 @@ class ParseOutcome:
     records: list[dict[str, Any]] = field(default_factory=list)
     rows_seen: int = 0
     drops: Counter = field(default_factory=Counter)
+    # (reason, the row's text) — a count alone cannot show whether a
+    # "no ticker" row was a Treasury bond or an equity written in a form
+    # the pattern does not recognise. Those are indistinguishable in a
+    # tally and obvious on sight.
+    dropped_rows: list[tuple[str, str]] = field(default_factory=list)
 
     @property
     def unreadable(self) -> bool:
@@ -159,12 +164,14 @@ def parse_report(
         if not ticker_match:
             # Bonds, real estate, private holdings — no ticker to trade.
             outcome.drops["no ticker"] += 1
+            outcome.dropped_rows.append(("no ticker", block))
             continue
 
         asset_type_match = _ASSET_TYPE.search(block)
         asset_type = asset_type_match.group(1).upper() if asset_type_match else ""
         if asset_type in FUND_ASSET_TYPES:
             outcome.drops["fund"] += 1
+            outcome.dropped_rows.append(("fund", block))
             continue
 
         # Drop the bracket now that it is captured: a wrapped row can
@@ -175,6 +182,7 @@ def parse_report(
         transaction_date = _iso(dates[0]) if dates else None
         if transaction_date is None:
             outcome.drops["no readable date"] += 1
+            outcome.dropped_rows.append(("no readable date", block))
             continue
 
         # The type column sits to the left of the dates. Take the last
@@ -184,6 +192,7 @@ def parse_report(
         type_matches = _TXN_TYPE.findall(head)
         if not type_matches:
             outcome.drops["no readable direction"] += 1
+            outcome.dropped_rows.append(("no readable direction", block))
             continue
 
         amount = _amount(cleaned)
