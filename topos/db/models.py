@@ -44,6 +44,11 @@ class RankedOpportunity(Base):
     net_direction = Column(Float, nullable=False)  # -1 (all sell) .. +1 (all buy)
     signal_count = Column(Integer, nullable=False)
     sources = Column(JSON, nullable=False)
+    # Additive derivation of the score (contributions, bonuses,
+    # penalties). Nullable so it can be added to an existing deployment
+    # without discarding ranking history, which is the backtester's
+    # sample — rows predating attribution simply have none.
+    attribution = Column(JSON, nullable=True)
     rank_timestamp = Column(DateTime, default=datetime.utcnow)
 
 

@@ -1,7 +1,8 @@
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from topos.db.models import RankedOpportunity
+from topos.ranking.attribution import build_breakdown
 from topos.signals.base import Signal
 
 _BUY_THRESHOLD = 60.0
@@ -35,18 +36,13 @@ class RankingEngine:
         ranked.sort(key=lambda r: r.score, reverse=True)
         return ranked
 
-    def _score_ticker(self, ticker: str, ticker_signals: list[Signal]) -> RankedOpportunity:
-        avg_confidence = sum(s.confidence for s in ticker_signals) / len(ticker_signals)
+    def _score_ticker(
+        self, ticker: str, ticker_signals: list[Signal], as_of: date | None = None
+    ) -> RankedOpportunity:
+        breakdown = build_breakdown(ticker, ticker_signals, as_of=as_of)
+        score = breakdown.score
+        net_direction = breakdown.net_direction
         source_diversity = len({s.source for s in ticker_signals})
-
-        buy_weight = sum(s.confidence for s in ticker_signals if s.evidence.get("direction") == "buy")
-        sell_weight = sum(s.confidence for s in ticker_signals if s.evidence.get("direction") == "sell")
-        total_directional = buy_weight + sell_weight
-        net_direction = (buy_weight - sell_weight) / total_directional if total_directional else 0.0
-
-        diversity_bonus = 1 + 0.1 * (source_diversity - 1)
-        conviction = 0.5 + 0.5 * abs(net_direction)
-        score = round(min(avg_confidence * diversity_bonus * conviction, 1.0) * 100, 2)
 
         recommendation = "HOLD"
         if source_diversity >= _MIN_SOURCES_FOR_RECOMMENDATION:
@@ -59,8 +55,12 @@ class RankingEngine:
             ticker=ticker,
             score=score,
             recommendation=recommendation,
-            net_direction=round(net_direction, 3),
+            net_direction=net_direction,
             signal_count=len(ticker_signals),
             sources=sorted({s.source for s in ticker_signals}),
+            # The full additive derivation, stored so the dashboard can
+            # show why a ticker scored what it did without recomputing
+            # against signals that may have changed since.
+            attribution=breakdown.to_dict(),
             rank_timestamp=datetime.now(timezone.utc),
         )

@@ -21,10 +21,14 @@ def _signal(ticker: str, source: str, confidence: float, direction: str | None =
 
 
 def test_rank_favors_multi_source_agreement():
+    # Directions are supplied because the additive attribution model
+    # rewards sources *agreeing on a direction*, not merely both having
+    # mentioned the ticker. Every real extractor sets a direction; the
+    # earlier version of this test omitted it, which no live signal does.
     signals = [
-        _signal("AAA", "sec_form4", 0.6),
-        _signal("BBB", "sec_form4", 0.6),
-        _signal("BBB", "news_sentiment", 0.6),
+        _signal("AAA", "sec_form4", 0.6, direction="buy"),
+        _signal("BBB", "sec_form4", 0.6, direction="buy"),
+        _signal("BBB", "news_sentiment", 0.6, direction="buy"),
     ]
 
     ranked = RankingEngine().rank(signals)
@@ -32,6 +36,17 @@ def test_rank_favors_multi_source_agreement():
     assert ranked[0].ticker == "BBB"
     assert ranked[0].signal_count == 2
     assert ranked[1].ticker == "AAA"
+
+
+def test_source_count_alone_does_not_raise_the_score():
+    # Two sources that merely mention a ticker, with no directional view,
+    # are not corroboration — the bonus is for agreement, not headcount.
+    one = RankingEngine().rank([_signal("AAA", "sec_form4", 0.6)])[0]
+    two = RankingEngine().rank(
+        [_signal("BBB", "sec_form4", 0.6), _signal("BBB", "news_sentiment", 0.6)]
+    )[0]
+
+    assert two.score == one.score
 
 
 def test_single_source_never_gets_buy_or_sell_recommendation():
