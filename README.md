@@ -285,6 +285,29 @@ making requests (name + contact email) — see
 https://www.sec.gov/os/accessing-edgar-data. Set `SEC_EDGAR_USER_AGENT`
 accordingly.
 
+### Research without a database server
+
+Backtesting and the validation report need no Postgres, no Docker and no
+network. Point `DATABASE_URL` at a file and everything runs locally:
+
+```powershell
+$env:DATABASE_URL = "sqlite:///topos.db"    # PowerShell
+```
+```bash
+export DATABASE_URL="sqlite:///topos.db"    # bash
+```
+
+This matters more than it sounds. The deployed dashboard runs on Postgres,
+but research against a *remote* Postgres puts a VPN and a firewall between
+you and a question about a scoring model — and outbound 5432 is exactly
+the port corporate and home networks like to block. A local file removes
+that entire class of failure from work that never needed a server.
+
+`tests/test_sqlite_portability.py` keeps this working: the schema, the
+attribution NULL detection and the whole report are exercised against
+SQLite, so a Postgres-only construct fails in CI rather than the first
+time someone tries to run research offline.
+
 ## Deploying to Render
 
 `render.yaml` defines a Blueprint with three resources:
