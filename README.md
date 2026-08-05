@@ -302,3 +302,31 @@ live, and Render has changed this naming scheme before.
 This is a personal research tool. Nothing it outputs is investment advice.
 It runs against Alpaca's paper trading endpoint only until you deliberately
 supply live credentials and pass `--execute`.
+
+## Validation research report
+
+Once there's enough history, this answers whether the scoring model has
+predictive power:
+
+```bash
+python scripts/research_report.py                      # 20-day horizon
+python scripts/research_report.py --horizon 5 --output report.md
+```
+
+Six sections: per-source performance, per-score-bucket performance, the
+rank correlation between score and forward return, multi-source versus
+single-source cohorts, and a recommendation on whether the weights should
+move.
+
+Significance comes from **permutation tests**, not a t-approximation.
+Returns are not normal and these samples are small, and a normal
+approximation overstates significance exactly when the sample is
+thinnest — which is the failure mode the whole exercise exists to avoid.
+
+The recommendation defaults to **UNCHANGED** and the bar for anything
+else is deliberately high: no inference at all below n=30, findings
+flagged provisional below n=100, and a negative correlation returns
+INVESTIGATE (suspecting a look-ahead error or inverted convention) rather
+than a mandate to retune. Tuning weights against a sample too small to
+separate skill from noise produces a model that looks better precisely
+because it has been fitted to randomness.
