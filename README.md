@@ -149,6 +149,71 @@ drop the `ranked_opportunities` table before redeploying — it's cached
 rankings, not source-of-truth data, so this is safe. `signals` and `trades`
 are untouched.
 
+## Backtesting — point-in-time data and signal validation
+
+The platform's scoring weights were all hand-tuned and had never been
+checked against what the tickers actually did next. This layer measures
+that. Two foundational data problems had to be fixed first:
+
+**Signals are dated by event, not by scrape.** Every source except
+congressional trades used to stamp `datetime.now()` — the moment the
+scraper ran. An insider trade from July 15 scraped on August 5 was
+recorded as August 5, so a "20-day forward return" measured a window in
+which the market had already reacted weeks earlier. Every signal now
+carries an explicit `event_date` (the insider's trade date, the SEC
+filing date, the last price bar, the sentiment snapshot day) separate
+from the observation `timestamp`. A record that can't be dated is dropped
+rather than backdated to today.
+
+**Signals are deduplicated.** The pipeline runs on a schedule over
+overlapping windows, and previously re-inserted the same Form 4 as a
+fresh signal every run — inflating a ticker's signal count in ranking and
+making stored history useless. Signals now carry a natural `dedup_key`
+with a database unique constraint.
+
+### Liquidity screen (`topos/screening/liquidity.py`)
+
+Untradeable names were reaching Ranked Opportunities. A ticker must now
+clear a dollar-volume floor, a minimum price, and a minimum amount of
+price history before it can be ranked or traded. Screening uses dollar
+volume (close x volume), not share count — 10M shares of a $0.30 stock is
+not the liquidity that 100k shares of a $200 stock is. A ticker with no
+stored price history fails the screen rather than getting the benefit of
+the doubt. Raw signals for screened-out tickers are still stored; they
+just aren't ranked or traded.
+
+### Running it
+
+```bash
+python scripts/run_backtest.py                      # score bucket vs. return
+python scripts/run_backtest.py --group-by source    # which sources work
+python scripts/run_backtest.py --group-by confidence --horizons 5,20
+```
+
+The same score-bucket table is in the dashboard's **Signal Validation**
+section.
+
+### Reading the results honestly
+
+- **Returns are direction-adjusted.** A SELL signal that correctly called
+  a drop is a win. Grading on raw price change would score every bearish
+  call backwards.
+- **Unmeasurable signals are excluded, not zeroed.** A signal too recent
+  to have a full forward window has no result; counting it as 0% would
+  drag averages toward zero and make the strategy look flatter and safer
+  than it is.
+- **Thin buckets are flagged.** Anything under 20 observations is marked
+  `(thin)` in the CLI and the dashboard. A 2-sample win rate is noise.
+  **The scoring weights should not be tuned off thin buckets** — this
+  table only becomes evidence once the pipeline has accumulated real
+  history, which takes weeks of scheduled runs.
+- Sharpe is annualized by holding period (`sqrt(252/horizon)`), assumes a
+  0% risk-free rate, and assumes non-overlapping trades.
+
+**Status: the harness is built and verified, but it has not yet produced
+a verdict on Topos's scoring.** That requires accumulated live history.
+Nothing here yet says the score predicts returns.
+
 ## Setup
 
 ```bash

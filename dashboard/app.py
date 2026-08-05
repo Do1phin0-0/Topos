@@ -5,6 +5,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import streamlit as st
 
+from topos.backtesting.evaluate import evaluate_score_buckets
 from topos.config import load_settings
 from topos.db.models import RankedOpportunity, Signal, Trade
 from topos.db.session import SessionLocal, init_db
@@ -102,6 +103,63 @@ if ranked:
     )
 else:
     st.info("No ranked opportunities yet. Run `python scripts/run_pipeline.py`.")
+
+st.header("Signal Validation")
+st.caption(
+    "Does a higher score actually earn a higher return? Returns are "
+    "direction-adjusted (a correct SELL counts as a gain), and signals too "
+    "recent to have a full forward window are excluded rather than counted "
+    "as 0%."
+)
+
+validation_horizon = st.selectbox("Holding period (trading days)", [5, 20, 60], index=1)
+try:
+    buckets = evaluate_score_buckets(session, horizons=(validation_horizon,))
+except Exception as exc:
+    buckets = []
+    st.warning(f"Could not evaluate score buckets: {exc}")
+
+if buckets:
+    rows = []
+    thin = False
+    for bucket in buckets:
+        stats = bucket.horizons[validation_horizon]
+        if not stats.is_meaningful:
+            thin = True
+        rows.append(
+            {
+                "score bucket": bucket.label,
+                "n": stats.sample_size,
+                "win rate": "—" if stats.win_rate is None else f"{stats.win_rate:.0%}",
+                "avg return": "—" if stats.avg_return is None else f"{stats.avg_return * 100:+.2f}%",
+                "median": "—" if stats.median_return is None else f"{stats.median_return * 100:+.2f}%",
+                "sharpe": "—" if stats.sharpe is None else f"{stats.sharpe:.2f}",
+                "enough data?": "yes" if stats.is_meaningful else "thin — treat as noise",
+            }
+        )
+    st.dataframe(rows)
+
+    chartable = {
+        b.label: b.horizons[validation_horizon].avg_return
+        for b in buckets
+        if b.horizons[validation_horizon].avg_return is not None
+    }
+    if chartable:
+        st.bar_chart(chartable)
+
+    if thin:
+        st.info(
+            "Buckets marked thin have too few observations (under 20) to "
+            "read as evidence. This fills in as the pipeline accumulates "
+            "history — the scoring weights should not be tuned off these "
+            "numbers yet."
+        )
+else:
+    st.info(
+        "No measurable history yet. Score validation needs ranked "
+        "opportunities that are old enough for their forward window to have "
+        "closed, plus price history covering it."
+    )
 
 st.header("Raw Signals")
 signals = session.query(Signal).order_by(Signal.timestamp.desc()).limit(100).all()
