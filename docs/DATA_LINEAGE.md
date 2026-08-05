@@ -14,7 +14,7 @@ to determine, and it has not yet run on enough real history to say.
 | Source | `event_date` from | Real event? | Deduplicated on |
 |---|---|---|---|
 | `sec_form4` | earliest `transactionDate` in the filing; falls back to `periodOfReport` | Yes | filing URL |
-| `congress_house` / `congress_senate` | disclosure's `transaction_date` | Yes | chamber + member + ticker + date + direction |
+| `congress_house` (Senate currently dark) | transaction date as filed in the PTR | Yes | chamber + member + ticker + date + direction |
 | `sec_8k_earnings` | 8-K filing date (atom `updated`) | Yes | filing URL |
 | `institutional_13f` | 13F-HR filing date (atom `updated`) | Yes | filing URL + CUSIP |
 | `technical` | date of the most recent price bar used | Yes | ticker + bar date |
@@ -51,10 +51,29 @@ every forward return measured from it.
 
 ## Congressional trades
 
-- **Collector**: `topos/collectors/congress.py` — House Stock Watcher and
-  Senate Stock Watcher JSON. There is no free official structured API;
-  the House Clerk and Senate eFD systems publish only PDFs, and these
-  open-source projects parse them.
+- **Collector**: `topos/collectors/house_clerk.py` — the House Clerk's own
+  disclosure archive. `{year}FD.zip` carries an XML index of every filing,
+  from which Periodic Transaction Reports (filing type `P`) are fetched as
+  PDFs from `ptr-pdfs/{year}/{doc_id}.pdf` and parsed by
+  `topos/collectors/ptr_parser.py`.
+  - **Why PDFs.** This used to read House Stock Watcher and Senate Stock
+    Watcher JSON — open-source projects that parsed these same filings
+    into structured data. In August 2026 both S3 buckets began returning
+    `AccessDenied` to everyone, verified against the origin. There is no
+    free official *structured* API; the Clerk publishes documents, which
+    is precisely the gap those mirrors filled.
+  - **Coverage is partial by construction.** Electronically filed reports
+    have a text layer and parse cleanly. Paper filings are scanned images
+    with no text, and are skipped rather than guessed at. `BackfillResult`
+    reports the parse rate per year so a shortfall is visible instead of
+    looking like a quiet quarter.
+  - **Senate is not covered.** Senate eFD sits behind an interstitial
+    agreement form and has no equivalent bulk archive, so `congress_senate`
+    currently produces no signals. Anything scored on multi-source
+    agreement should be read with that in mind — one chamber is dark.
+  - **Funds are excluded.** Rows whose asset type marks a pooled vehicle
+    (`MF`, `EF`, `ETF`, …) are dropped: an index-fund purchase carries a
+    ticker but is not a view on a company.
 - **Event date**: `transaction_date` (the trade), falling back to
   `disclosure_date`. Note these differ by up to 45 days under the STOCK
   Act, so the *disclosure* is when the market could first react while the
@@ -185,7 +204,7 @@ scheduled runs. This is what could be backfilled to accelerate it.
 
 | Source | Archive | Coverage | Effort |
 |---|---|---|---|
-| **Congressional** | already in `all_transactions.json` | 2020–present | **Trivial** |
+| **Congressional (House)** | [Clerk `{year}FD.zip` + PTR PDFs](https://disclosures-clerk.house.gov/) | 2008–present | Medium |
 | **Technical** | Stooq daily history | years | **Trivial** |
 | Form 4 | [EDGAR full-index](https://www.sec.gov/Archives/edgar/full-index/) | 1993Q1–present | Medium |
 | 8-K earnings | EDGAR full-index | 1993Q1–present | Medium |
@@ -196,13 +215,13 @@ scheduled runs. This is what could be backfilled to accelerate it.
 
 ### The two quick wins
 
-**Congressional trades are already fully downloaded and then thrown
-away.** `CongressTradeCollector.latest_transactions()` fetches the
-complete `all_transactions.json` — every disclosure from 2020 onward —
-sorts it, and returns only the most recent `limit` rows. Years of
-history are being discarded on every run. Backfilling is a matter of not
-truncating, plus price history for the tickers involved. This is by far
-the cheapest path to a statistically meaningful sample.
+**Congressional trades still have the deepest downloadable history.**
+The Clerk publishes a complete archive per year, so `scripts/backfill_congress.py`
+can ingest several years in one run — no other source offers that without
+significant work. It is no longer free, though: the first run downloads a
+few thousand PDFs. Downloads are cached on disk, so the cost is paid once
+and re-parsing (which the parser will need as its output is inspected) is
+instant afterwards.
 
 **Price history is already complete.** `PriceCollector.daily_bars()`
 returns Stooq's full available history, and `backfill_ticker()` stores

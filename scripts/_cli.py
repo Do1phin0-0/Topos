@@ -10,7 +10,7 @@ because that one really is a bug and the frames are the evidence.
 import sys
 from typing import Callable
 
-from topos.collectors.congress import UpstreamUnavailable
+from topos.collectors.errors import UpstreamUnavailable
 from topos.db.session import DatabaseUnreachable
 
 

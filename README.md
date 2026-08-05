@@ -28,7 +28,7 @@ and `evidence` payload (`topos/signals/base.py`).
 | Source | Status |
 | --- | --- |
 | SEC Form 4 (insider buy/sell) | **Live** — `topos/signals/form4.py` |
-| Congressional trade disclosures | **Live** — `topos/signals/congress.py`, via House/Senate Stock Watcher (see caveat below) |
+| Congressional trade disclosures | **Live, House only** — `topos/signals/congress.py`, parsed from House Clerk PTR filings (see caveat below) |
 | Earnings reports | **Live** — `topos/signals/earnings.py`, SEC 8-K Item 2.02 detection (timing only, see caveat below) |
 | News sentiment | **Live** — `topos/signals/news.py`, Google News RSS + local VADER scoring, no API key |
 | Technical indicators | **Live** — `topos/signals/technical.py`, RSI(14) + SMA 20/50 crossover from free Stooq price data |
@@ -38,12 +38,25 @@ and `evidence` payload (`topos/signals/base.py`).
 | Options activity | Not started |
 | Analyst revisions | Not started |
 
-**Congressional data caveat:** there is no free official structured API for
+**Congressional data caveat:** there is no free official *structured* API for
 congressional trade disclosures — the House Clerk and Senate eFD systems
-only publish PDFs. Topos pulls from [House Stock Watcher](https://housestockwatcher.com)
-and [Senate Stock Watcher](https://senatestockwatcher.com), open-source
-projects that parse those official PDFs into public JSON. That means Topos's
-congressional signal is only as fresh/accurate as those mirrors.
+publish documents, not data. Topos used to read House Stock Watcher and
+Senate Stock Watcher, open-source projects that parsed those documents into
+public JSON, but in **August 2026 both S3 buckets began returning
+`AccessDenied` to everyone** and that route closed.
+
+Topos now goes to the source: it downloads the Clerk's yearly disclosure
+archive, pulls each Periodic Transaction Report PDF, and parses the
+transaction table itself (`topos/collectors/house_clerk.py`). Two
+consequences worth knowing:
+
+- **Coverage is partial.** Electronically filed reports carry a text layer
+  and parse cleanly; paper filings are scans and are skipped rather than
+  guessed at. The backfill prints its parse rate per year so a shortfall
+  is visible rather than looking like a quiet quarter.
+- **The Senate is dark.** Senate eFD sits behind an interstitial agreement
+  form with no bulk archive, so `congress_senate` currently yields nothing.
+  Anything resting on multi-source agreement is missing a chamber.
 
 **Earnings caveat:** Topos flags 8-K filings that report Item 2.02 (the item
 issuers use to furnish an earnings press release). That's a real-time timing

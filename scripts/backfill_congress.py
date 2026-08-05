@@ -2,33 +2,31 @@
 
 Live accumulation is slow: the score-bucket table needs enough closed
 forward windows to say anything, and the pipeline only sees new
-disclosures. But the House/Senate Stock Watcher endpoints return their
-entire archive on every request — the pipeline was already downloading
-years of history and discarding all but the most recent rows.
-
-This ingests that history and backfills the price bars needed to measure
-forward returns against it. Congressional trades are the cheapest source
-to backfill by a wide margin; see docs/DATA_LINEAGE.md for the others.
+disclosures as they appear. The House Clerk publishes a yearly archive of
+every Periodic Transaction Report, so years of history can be ingested at
+once — which is what makes validating the scoring model possible now
+rather than next quarter.
 
     python scripts/backfill_congress.py --since 2024-01-01
-    python scripts/backfill_congress.py --since 2024-01-01 --max-tickers 100
+    python scripts/backfill_congress.py --since 2024-01-01 --max-filings 50
     python scripts/backfill_congress.py --since 2024-01-01 --skip-prices
 
-Price backfill is the slow part — one Stooq request per ticker, rate
-limited. Run with --skip-prices first to see the ticker count you'd be
-committing to.
+The first run downloads a few thousand PDFs; they are cached, so later
+runs re-parse from disk for free. Start with --max-filings to see the
+parse rate on a sample before committing to a full year, and --skip-prices
+to see the ticker count you would be signing up for.
 """
 
 import argparse
 import sys
 import time
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from topos.backtesting.prices import backfill_ticker
-from topos.collectors.congress import CongressTradeCollector
+from topos.collectors.house_clerk import HouseClerkCollector, HouseClerkUnavailable
 from topos.collectors.prices import PriceCollector
 from topos.db.session import SessionLocal, init_db
 from topos.pipeline import persist_signals
@@ -41,6 +39,12 @@ def main() -> None:
         "--since",
         default="2024-01-01",
         help="Only ingest transactions on or after this date (YYYY-MM-DD).",
+    )
+    parser.add_argument(
+        "--max-filings",
+        type=int,
+        default=0,
+        help="Cap on PTR filings to fetch per year (0 = all). Use for a trial run.",
     )
     parser.add_argument(
         "--max-tickers",
@@ -57,16 +61,38 @@ def main() -> None:
         "--delay",
         type=float,
         default=0.4,
-        help="Seconds between price requests, to stay a polite client.",
+        help="Seconds between requests, to stay a polite client.",
     )
     args = parser.parse_args()
 
     since = datetime.strptime(args.since, "%Y-%m-%d").date()
+    years = list(range(since.year, date.today().year + 1))
 
     init_db()
-    print(f"Fetching the full congressional archive (filtering to >= {since})...")
-    records = CongressTradeCollector().all_transactions()
-    print(f"  {len(records)} total disclosures available upstream.")
+
+    collector = HouseClerkCollector(delay=args.delay)
+    records = []
+    print(f"Fetching House Clerk disclosure archives for {years}...")
+    for year in years:
+        try:
+            result = collector.transactions(
+                year, limit=args.max_filings or None
+            )
+        except HouseClerkUnavailable as error:
+            # A year the Clerk has not published yet is expected, not fatal.
+            print(f"  {year}: unavailable ({error})")
+            continue
+
+        print(f"  {result.summary()}")
+        if result.parse_rate is not None and result.parse_rate < 0.5:
+            print(
+                f"  [warn] {year}: under half of fetched filings yielded transactions. "
+                "That is either a lot of scanned paper filings or a parser problem — "
+                "inspect a few before trusting the numbers."
+            )
+        records.extend(result.transactions)
+
+    print(f"\n  {len(records)} transactions parsed across {len(years)} year(s).")
 
     signals = []
     for record in records:
@@ -100,12 +126,11 @@ def main() -> None:
         else:
             print(f"Backfilling prices for all {len(targets)}.")
 
-        collector = PriceCollector()
+        prices = PriceCollector()
         total_bars = 0
         for index, ticker in enumerate(targets, start=1):
             try:
-                bars = backfill_ticker(session, ticker, collector=collector)
-                total_bars += bars
+                total_bars += backfill_ticker(session, ticker, collector=prices)
             except Exception as exc:
                 print(f"  [warn] {ticker}: {exc}")
             if index % 25 == 0:
@@ -113,7 +138,7 @@ def main() -> None:
             time.sleep(args.delay)
 
         print(f"\nDone. {total_bars} price bars stored across {len(targets)} tickers.")
-        print("Now run: python scripts/run_backtest.py")
+        print("Now run: python scripts/research_report.py --output report.md")
     finally:
         session.close()
 

@@ -11,5 +11,11 @@ streamlit>=1.35
 # versions. Safe to drop once Streamlit ships a fix upstream.
 starlette<1.4.0
 python-dotenv>=1.0
+# Congressional disclosures come from the House Clerk as PDFs — the free
+# structured mirrors that used to parse them were withdrawn in Aug 2026.
+pdfplumber>=0.11
 vaderSentiment>=3.3
 pytest>=8.0
+# Builds a real PTR-shaped PDF for the extraction test; that test skips if
+# absent, so it is not needed to run Topos itself.
+fpdf2>=2.8

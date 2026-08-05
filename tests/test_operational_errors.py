@@ -10,7 +10,8 @@ import pytest
 import requests
 from sqlalchemy.exc import OperationalError
 
-from topos.collectors.congress import CongressTradeCollector, UpstreamUnavailable
+from topos.collectors.errors import UpstreamUnavailable
+from topos.collectors.house_clerk import HouseClerkCollector
 from topos.db.session import _describe
 
 
@@ -55,37 +56,50 @@ def test_the_password_is_never_printed(monkeypatch):
     assert "topos:topos@" not in text
 
 
-# --- withdrawn upstream feed -----------------------------------------
+# --- an upstream that refuses us --------------------------------------
 
 
 class _Response:
     def __init__(self, status_code: int):
         self.status_code = status_code
+        self.content = b""
 
     def raise_for_status(self):
-        raise requests.HTTPError(f"{self.status_code} Server Error")
-
-    def json(self):
-        return []
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"{self.status_code} Server Error")
 
 
-def test_a_withdrawn_feed_says_so_instead_of_looking_like_a_blip(monkeypatch):
-    monkeypatch.setattr(requests, "get", lambda *a, **k: _Response(403))
+class _Session:
+    def __init__(self, status_code: int):
+        self.headers: dict[str, str] = {}
+        self._status = status_code
+
+    def get(self, url, timeout=0):
+        return _Response(self._status)
+
+
+def test_being_blocked_points_at_the_user_agent_not_at_retrying(tmp_path):
+    # Public .gov archives need no credentials, so a 403 means this client
+    # was filtered — a fact no amount of retrying changes.
+    collector = HouseClerkCollector(cache_dir=tmp_path, delay=0, session=_Session(403))
 
     with pytest.raises(UpstreamUnavailable) as caught:
-        CongressTradeCollector().house_transactions()
+        collector.index(2024)
 
-    message = str(caught.value)
-    assert "withdrawn" in message
-    # Retrying is the natural reaction to a 403 and it is the wrong one.
-    assert "retrying will not help" in message
-    assert "other collectors are unaffected" in message
+    assert "SEC_EDGAR_USER_AGENT" in str(caught.value)
 
 
-def test_ordinary_server_errors_still_raise_normally(monkeypatch):
+def test_a_year_that_is_not_published_is_reported_as_such(tmp_path):
+    collector = HouseClerkCollector(cache_dir=tmp_path, delay=0, session=_Session(404))
+
+    with pytest.raises(UpstreamUnavailable, match="Not published"):
+        collector.index(2099)
+
+
+def test_ordinary_server_errors_still_raise_normally(tmp_path):
     # A 500 really might be transient — it must not be relabelled as a
-    # permanently withdrawn feed.
-    monkeypatch.setattr(requests, "get", lambda *a, **k: _Response(500))
+    # source that will never answer.
+    collector = HouseClerkCollector(cache_dir=tmp_path, delay=0, session=_Session(500))
 
     with pytest.raises(requests.HTTPError):
-        CongressTradeCollector().house_transactions()
+        collector.index(2024)

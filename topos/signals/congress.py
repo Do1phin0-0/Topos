@@ -2,7 +2,7 @@ import re
 from datetime import date, datetime, timezone
 from typing import Any
 
-from topos.collectors.congress import CongressTradeCollector
+from topos.collectors.house_clerk import HouseClerkCollector
 from topos.signals.base import Signal
 
 _AMOUNT_RE = re.compile(r"[\d,]+")
@@ -64,8 +64,9 @@ def extract_congress_signal(record: dict[str, Any]) -> Signal | None:
     return Signal(
         timestamp=datetime.now(timezone.utc),
         event_date=event_date,
-        # Stock Watcher records carry no stable upstream id, so identity
-        # is the disclosure itself: who traded what, which way, when.
+        # A disclosed transaction carries no stable upstream id, so
+        # identity is the disclosure itself: who traded what, which way,
+        # when. Re-parsing a filing therefore cannot double-insert it.
         dedup_key=f"congress_{chamber}:{owner}:{ticker}:{event_date.isoformat()}:{direction}",
         source=f"congress_{chamber}",
         ticker=ticker,
@@ -83,12 +84,22 @@ def extract_congress_signal(record: dict[str, Any]) -> Signal | None:
 
 
 class CongressSignalExtractor:
-    def __init__(self, collector: CongressTradeCollector | None = None) -> None:
-        self._collector = collector or CongressTradeCollector()
+    """Live congressional signals, read from the House Clerk archive.
+
+    The archive is a whole year at a time rather than a recent-items feed,
+    which sounds wasteful for an hourly poll and isn't: downloaded reports
+    are cached on disk, so each run fetches only filings that appeared
+    since the last one. The first run of a year is the expensive one.
+    """
+
+    def __init__(self, collector: HouseClerkCollector | None = None) -> None:
+        self._collector = collector or HouseClerkCollector()
 
     def extract(self, limit: int = 200) -> list[Signal]:
+        records = self._collector.all_transactions([date.today().year])
+
         signals = []
-        for record in self._collector.latest_transactions(limit=limit):
+        for record in records[:limit]:
             signal = extract_congress_signal(record)
             if signal:
                 signals.append(signal)
