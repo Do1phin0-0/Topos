@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 from topos.collectors.news import NewsCollector
+from topos.signals.timestamps import latest_date, parse_rfc2822
 from topos.signals.base import Signal
 
 _analyzer = SentimentIntensityAnalyzer()
@@ -35,13 +36,20 @@ class NewsSignalExtractor:
 
         direction = "buy" if avg > 0 else "sell"
         confidence = max(0.0, min(1.0, 0.2 + abs(avg) * 0.6 + min(len(headlines) / 20, 0.2)))
+
+        # Dated by the freshest article, not by when we scanned. A batch
+        # we can't date at all is dropped rather than stamped with today.
+        event_date = latest_date([parse_rfc2822(h.get("pub_date")) for h in headlines])
+        if event_date is None:
+            return None
+
         observed_at = datetime.now(timezone.utc)
-        event_date = observed_at.date()
         return Signal(
             timestamp=observed_at,
             event_date=event_date,
-            # A daily sentiment aggregate: one snapshot per ticker per day,
-            # so re-running the scan refreshes rather than stacks.
+            # Keyed to the newest article's date, so re-scanning an
+            # unchanged set of articles dedupes instead of recording the
+            # same stale sentiment as a fresh signal every day.
             dedup_key=f"news_sentiment:{ticker}:{event_date.isoformat()}",
             source="news_sentiment",
             ticker=ticker,
@@ -51,5 +59,6 @@ class NewsSignalExtractor:
                 "avg_compound": round(avg, 3),
                 "headline_count": len(headlines),
                 "sample_headlines": [h["title"] for h in headlines[:3]],
+                "latest_article_date": event_date.isoformat(),
             },
         )

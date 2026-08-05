@@ -32,6 +32,9 @@ class TwitterCollector:
             params={
                 "query": f"{query} -is:retweet lang:en",
                 "max_results": max(10, min(max_results, 100)),
+                # X returns only id and text by default; without this the
+                # sentiment signal has no way to date itself.
+                "tweet.fields": "created_at",
             },
             timeout=15,
         )

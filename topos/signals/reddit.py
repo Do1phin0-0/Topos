@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 from topos.collectors.reddit import RedditCollector
+from topos.signals.timestamps import latest_date, parse_epoch
 from topos.signals.base import Signal
 
 _analyzer = SentimentIntensityAnalyzer()
@@ -42,13 +43,18 @@ class RedditSignalExtractor:
         direction = "buy" if avg > 0 else "sell"
         engagement = sum(p.get("score", 0) for p in posts)
         confidence = max(0.0, min(1.0, 0.15 + abs(avg) * 0.5 + min(engagement / 5000, 0.25)))
+
+        # Dated by the newest post, not by when we scanned.
+        event_date = latest_date([parse_epoch(p.get("created_utc")) for p in posts])
+        if event_date is None:
+            return None
+
         observed_at = datetime.now(timezone.utc)
-        event_date = observed_at.date()
         return Signal(
             timestamp=observed_at,
             event_date=event_date,
-            # A daily sentiment aggregate: one snapshot per ticker per day,
-            # so re-running the scan refreshes rather than stacks.
+            # Keyed to the newest post's date, so re-scanning an unchanged
+            # thread set dedupes instead of recording stale sentiment daily.
             dedup_key=f"reddit_sentiment:{ticker}:{event_date.isoformat()}",
             source="reddit_sentiment",
             ticker=ticker,
@@ -58,5 +64,6 @@ class RedditSignalExtractor:
                 "avg_compound": round(avg, 3),
                 "post_count": len(posts),
                 "total_engagement": engagement,
+                "latest_post_date": event_date.isoformat(),
             },
         )

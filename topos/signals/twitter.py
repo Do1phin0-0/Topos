@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 from topos.collectors.twitter import TwitterCollector
+from topos.signals.timestamps import latest_date, parse_iso8601
 from topos.signals.base import Signal
 
 _analyzer = SentimentIntensityAnalyzer()
@@ -37,13 +38,19 @@ class TwitterSignalExtractor:
 
         direction = "buy" if avg > 0 else "sell"
         confidence = max(0.0, min(1.0, 0.15 + abs(avg) * 0.5 + min(len(tweets) / 50, 0.25)))
+
+        # Dated by the newest tweet, not by when we scanned. Requires the
+        # collector to request created_at, which X omits by default.
+        event_date = latest_date([parse_iso8601(t.get("created_at")) for t in tweets])
+        if event_date is None:
+            return None
+
         observed_at = datetime.now(timezone.utc)
-        event_date = observed_at.date()
         return Signal(
             timestamp=observed_at,
             event_date=event_date,
-            # A daily sentiment aggregate: one snapshot per ticker per day,
-            # so re-running the scan refreshes rather than stacks.
+            # Keyed to the newest tweet's date, so re-scanning an unchanged
+            # result set dedupes instead of recording stale sentiment daily.
             dedup_key=f"twitter_sentiment:{ticker}:{event_date.isoformat()}",
             source="twitter_sentiment",
             ticker=ticker,
@@ -52,5 +59,6 @@ class TwitterSignalExtractor:
                 "direction": direction,
                 "avg_compound": round(avg, 3),
                 "tweet_count": len(tweets),
+                "latest_tweet_date": event_date.isoformat(),
             },
         )

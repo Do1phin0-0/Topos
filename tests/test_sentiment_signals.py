@@ -7,8 +7,8 @@ from topos.signals.twitter import TwitterSignalExtractor
 
 def test_news_sentiment_positive_headlines_score_buy():
     headlines = [
-        {"title": "Company smashes earnings expectations, stock soars on record profit"},
-        {"title": "Analysts upgrade rating after blockbuster quarter"},
+        {"title": "Company smashes earnings expectations, stock soars on record profit", "pub_date": "Wed, 15 Jul 2026 10:00:00 GMT"},
+        {"title": "Analysts upgrade rating after blockbuster quarter", "pub_date": "Thu, 16 Jul 2026 10:00:00 GMT"},
     ]
 
     signal = NewsSignalExtractor()._score("TEST", headlines)
@@ -18,8 +18,8 @@ def test_news_sentiment_positive_headlines_score_buy():
 
 def test_news_sentiment_negative_headlines_score_sell():
     headlines = [
-        {"title": "Company misses earnings badly, stock plunges on huge losses"},
-        {"title": "Regulators fine firm amid fraud investigation scandal"},
+        {"title": "Company misses earnings badly, stock plunges on huge losses", "pub_date": "Wed, 15 Jul 2026 10:00:00 GMT"},
+        {"title": "Regulators fine firm amid fraud investigation scandal", "pub_date": "Thu, 16 Jul 2026 10:00:00 GMT"},
     ]
 
     signal = NewsSignalExtractor()._score("TEST", headlines)
@@ -28,7 +28,7 @@ def test_news_sentiment_negative_headlines_score_sell():
 
 
 def test_news_sentiment_neutral_headlines_produce_no_signal():
-    headlines = [{"title": "Company to hold quarterly meeting on Tuesday"}]
+    headlines = [{"title": "Company to hold quarterly meeting on Tuesday", "pub_date": "Wed, 15 Jul 2026 10:00:00 GMT"}]
 
     assert NewsSignalExtractor()._score("TEST", headlines) is None
 
