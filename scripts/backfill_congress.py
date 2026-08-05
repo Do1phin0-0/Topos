@@ -20,6 +20,7 @@ to see the ticker count you would be signing up for.
 import argparse
 import sys
 import time
+from collections import Counter
 from datetime import date, datetime
 from pathlib import Path
 
@@ -63,6 +64,15 @@ def main() -> None:
         default=0.4,
         help="Seconds between requests, to stay a polite client.",
     )
+    parser.add_argument(
+        "--diagnose",
+        action="store_true",
+        help=(
+            "Report why rows were dropped and print the text of filings the "
+            "parser could not read, then stop without ingesting. Reads from "
+            "the download cache, so it costs nothing to run."
+        ),
+    )
     args = parser.parse_args()
 
     since = datetime.strptime(args.since, "%Y-%m-%d").date()
@@ -72,11 +82,16 @@ def main() -> None:
 
     collector = HouseClerkCollector(delay=args.delay)
     records = []
+    drops = Counter()
+    samples: list[tuple[str, str]] = []
+
     print(f"Fetching House Clerk disclosure archives for {years}...")
     for year in years:
         try:
             result = collector.transactions(
-                year, limit=args.max_filings or None
+                year,
+                limit=args.max_filings or None,
+                keep_samples=2 if args.diagnose else 0,
             )
         except HouseClerkUnavailable as error:
             # A year the Clerk has not published yet is expected, not fatal.
@@ -84,13 +99,32 @@ def main() -> None:
             continue
 
         print(f"  {result.summary()}")
-        if result.parse_rate is not None and result.parse_rate < 0.5:
+        if result.unreadable_rate and result.unreadable_rate > 0.1:
             print(
-                f"  [warn] {year}: under half of fetched filings yielded transactions. "
-                "That is either a lot of scanned paper filings or a parser problem — "
-                "inspect a few before trusting the numbers."
+                f"  [warn] {year}: {result.unreadable_rate:.0%} of filings with a text "
+                "layer had rows the parser could not read. Run --diagnose to see them."
             )
         records.extend(result.transactions)
+        drops.update(result.drops)
+        samples.extend(result.samples)
+
+    if args.diagnose:
+        print()
+        width = max((len(reason) for reason in drops), default=0)
+        if drops:
+            print("Rows dropped, by reason:")
+            for reason, count in drops.most_common():
+                print(f"  {reason.ljust(width)}  {count}")
+        else:
+            print("No rows were dropped.")
+
+        # "no ticker" is the expected majority — bonds, property, private
+        # holdings. The others are the ones that would mean lost data.
+        for doc_id, text in samples:
+            print(f"\n--- unreadable filing {doc_id} " + "-" * 40)
+            print("\n".join(text.splitlines()[:45]))
+        print("\nStopping (--diagnose); nothing was ingested.")
+        return
 
     print(f"\n  {len(records)} transactions parsed across {len(years)} year(s).")
 

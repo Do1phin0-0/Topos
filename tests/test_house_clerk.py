@@ -19,7 +19,7 @@ from topos.collectors.house_clerk import (
     HouseClerkUnavailable,
     parse_index,
 )
-from topos.collectors.ptr_parser import parse_transactions
+from topos.collectors.ptr_parser import parse_report, parse_transactions
 from topos.signals.congress import extract_congress_signal
 
 # As pdfplumber emits it: the header is split across lines, and the
@@ -355,3 +355,106 @@ def test_parse_rate_is_none_rather_than_zero_when_nothing_was_fetched():
     from topos.collectors.house_clerk import BackfillResult
 
     assert BackfillResult(year=2024).parse_rate is None
+
+
+# --- telling "nothing to report" from "could not read it" -------------
+
+
+def test_a_filing_of_only_bonds_is_not_counted_as_unreadable():
+    # No ticker anywhere. The parser did its job; there was nothing to
+    # find. Counting this as a failure would manufacture a parser problem
+    # out of an ordinary disclosure.
+    text = (
+        "US Treasury Note 4.5% [GS] P 01/02/2024 01/15/2024 $15,001 - $50,000\n"
+        "Rental property, Austin TX [RP] S 02/01/2024 02/10/2024 $100,001 - $250,000\n"
+    )
+
+    outcome = parse_report(text, member="Jane Doe")
+
+    assert outcome.records == []
+    assert outcome.rows_seen == 2
+    assert outcome.drops["no ticker"] == 2
+    assert outcome.unreadable is False
+
+
+def test_a_filing_of_only_index_funds_is_not_counted_as_unreadable():
+    text = "Vanguard 500 Index (VFIAX) [MF] P 03/01/2024 03/10/2024 $15,001 - $50,000"
+
+    outcome = parse_report(text, member="Jane Doe")
+
+    assert outcome.records == []
+    assert outcome.drops["fund"] == 1
+    # A deliberate exclusion is not a parse failure.
+    assert outcome.unreadable is False
+
+
+def test_a_row_with_a_ticker_the_parser_cannot_finish_is_unreadable():
+    # A ticker is right there and the row still yielded nothing. That is
+    # the case worth looking at, and the one the counts must surface.
+    text = "Apple Inc. (AAPL) [ST] 01/02/2024 01/15/2024 $1,001 - $15,000"
+
+    outcome = parse_report(text, member="Jane Doe")
+
+    assert outcome.records == []
+    assert outcome.drops["no readable direction"] == 1
+    assert outcome.unreadable is True
+
+
+def test_an_empty_report_is_not_unreadable():
+    assert parse_report("", member="Jane Doe").unreadable is False
+
+
+def test_the_collector_separates_unreadable_filings_from_empty_ones(cache, monkeypatch):
+    zip_url = "https://disclosures-clerk.house.gov/public_disc/financial-pdfs/2024FD.zip"
+    session = _FakeSession(
+        {
+            zip_url: _FakeResponse(_zip_with("2024FD.xml", INDEX_XML)),
+            "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2024/20024001.pdf":
+                _FakeResponse(b"%PDF bonds"),
+            "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2024/20024003.pdf":
+                _FakeResponse(b"%PDF broken"),
+        }
+    )
+    texts = {
+        b"%PDF bonds": "US Treasury Note [GS] P 01/02/2024 01/15/2024 $1,001 - $15,000",
+        b"%PDF broken": "Apple Inc. (AAPL) [ST] 01/02/2024 01/15/2024 $1,001 - $15,000",
+    }
+    monkeypatch.setattr("topos.collectors.house_clerk._text_of", lambda pdf: texts[pdf])
+
+    result = HouseClerkCollector(cache_dir=cache, delay=0, session=session).transactions(
+        2024, keep_samples=5
+    )
+
+    assert result.filings_with_text == 2
+    assert result.filings_with_transactions == 0
+    # Only the one with a ticker it could not finish reading.
+    assert result.filings_unreadable == 1
+    assert result.unreadable_rate == 0.5
+    assert result.drops["no ticker"] == 1
+    assert result.drops["no readable direction"] == 1
+    # And its text is kept, so the layout can be looked at.
+    assert [doc_id for doc_id, _ in result.samples] == ["20024003"]
+
+
+def test_samples_are_not_collected_unless_asked_for(cache, monkeypatch):
+    # The text of every unreadable filing in a full year would be
+    # megabytes held in memory for no reason.
+    zip_url = "https://disclosures-clerk.house.gov/public_disc/financial-pdfs/2024FD.zip"
+    session = _FakeSession(
+        {
+            zip_url: _FakeResponse(_zip_with("2024FD.xml", INDEX_XML)),
+            "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2024/20024001.pdf":
+                _FakeResponse(b"%PDF broken"),
+            "https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2024/20024003.pdf":
+                _FakeResponse(b"%PDF broken"),
+        }
+    )
+    monkeypatch.setattr(
+        "topos.collectors.house_clerk._text_of",
+        lambda _: "Apple Inc. (AAPL) [ST] 01/02/2024 01/15/2024 $1,001 - $15,000",
+    )
+
+    result = HouseClerkCollector(cache_dir=cache, delay=0, session=session).transactions(2024)
+
+    assert result.filings_unreadable == 2
+    assert result.samples == []

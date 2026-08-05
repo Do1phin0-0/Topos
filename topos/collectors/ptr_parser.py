@@ -22,6 +22,8 @@ What is deliberately dropped rather than guessed:
 """
 
 import re
+from collections import Counter
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -104,30 +106,65 @@ def row_blocks(text: str) -> list[str]:
     return [re.sub(r"\s+", " ", " ".join(block)).strip() for block in blocks]
 
 
-def parse_transactions(
+@dataclass
+class ParseOutcome:
+    """Records, plus why everything else was left out.
+
+    A filing that yields nothing has two very different explanations: it
+    disclosed nothing tradeable (bonds, real estate, funds — common and
+    correct), or the parser could not read a table that was right there.
+    A bare count of transactions cannot tell those apart, and the
+    difference is the difference between working and silently losing data.
+    """
+
+    records: list[dict[str, Any]] = field(default_factory=list)
+    rows_seen: int = 0
+    drops: Counter = field(default_factory=Counter)
+
+    @property
+    def unreadable(self) -> bool:
+        """True when a row named a tradeable asset and still yielded nothing.
+
+        Deliberate exclusions do not count. A row with no ticker is a
+        bond, a rental property, a private partnership — the parser saw it
+        and correctly passed; likewise an index fund. What counts is a row
+        that got past both of those and then could not be finished, which
+        means a layout the parser does not handle and a disclosure lost.
+        """
+        return bool(
+            self.drops["no readable date"] + self.drops["no readable direction"]
+        )
+
+
+def parse_report(
     text: str,
     *,
     member: str,
     filing_date: str | None = None,
     ptr_link: str | None = None,
-) -> list[dict[str, Any]]:
-    """Every transaction this report discloses, in collector-record form.
+) -> ParseOutcome:
+    """Every transaction this report discloses, and an account of the rest.
 
     `member` and `filing_date` come from the filing index rather than the
     PDF: the index is structured data the Clerk publishes directly, so
     reading identity from there instead of from extracted text removes
     the most error-prone part of the parse.
     """
-    records: list[dict[str, Any]] = []
+    outcome = ParseOutcome()
 
     for block in row_blocks(text):
+        outcome.rows_seen += 1
+
         ticker_match = _TICKER.search(block)
         if not ticker_match:
+            # Bonds, real estate, private holdings — no ticker to trade.
+            outcome.drops["no ticker"] += 1
             continue
 
         asset_type_match = _ASSET_TYPE.search(block)
         asset_type = asset_type_match.group(1).upper() if asset_type_match else ""
         if asset_type in FUND_ASSET_TYPES:
+            outcome.drops["fund"] += 1
             continue
 
         # Drop the bracket now that it is captured: a wrapped row can
@@ -137,6 +174,7 @@ def parse_transactions(
         dates = _DATE.findall(cleaned)
         transaction_date = _iso(dates[0]) if dates else None
         if transaction_date is None:
+            outcome.drops["no readable date"] += 1
             continue
 
         # The type column sits to the left of the dates. Take the last
@@ -145,11 +183,14 @@ def parse_transactions(
         head = cleaned[: cleaned.index(dates[0])]
         type_matches = _TXN_TYPE.findall(head)
         if not type_matches:
+            outcome.drops["no readable direction"] += 1
             continue
 
         amount = _amount(cleaned)
+        if amount is None:
+            outcome.drops["no readable amount"] += 1
 
-        records.append(
+        outcome.records.append(
             {
                 "ticker": ticker_match.group(1).upper(),
                 "type": _TRANSACTION_TYPES[type_matches[-1].upper()],
@@ -165,4 +206,17 @@ def parse_transactions(
             }
         )
 
-    return records
+    return outcome
+
+
+def parse_transactions(
+    text: str,
+    *,
+    member: str,
+    filing_date: str | None = None,
+    ptr_link: str | None = None,
+) -> list[dict[str, Any]]:
+    """Just the transactions, for callers with no use for the accounting."""
+    return parse_report(
+        text, member=member, filing_date=filing_date, ptr_link=ptr_link
+    ).records

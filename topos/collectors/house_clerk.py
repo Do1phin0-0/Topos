@@ -25,6 +25,7 @@ will need revision once its output has been eyeballed.
 import io
 import time
 import zipfile
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator
@@ -33,7 +34,7 @@ from xml.etree import ElementTree
 import requests
 
 from topos.collectors.errors import UpstreamUnavailable
-from topos.collectors.ptr_parser import parse_transactions
+from topos.collectors.ptr_parser import parse_report
 from topos.config import load_settings
 
 FD_ZIP_URL = "https://disclosures-clerk.house.gov/public_disc/financial-pdfs/{year}FD.zip"
@@ -63,15 +64,25 @@ class FilingRef:
 
 @dataclass
 class BackfillResult:
-    """Enough detail to tell a thin harvest from a broken parser."""
+    """Enough detail to tell a thin harvest from a broken parser.
+
+    The distinction that matters: a filing yielding no transactions is
+    usually correct — plenty disclose only bonds, property or index funds
+    — but it looks identical, in a count, to one whose table the parser
+    could not read. `filings_unreadable` separates them, and `samples`
+    keeps the text of a few so the layout can actually be looked at.
+    """
 
     year: int
     filings_indexed: int = 0
     filings_fetched: int = 0
     filings_with_text: int = 0
     filings_with_transactions: int = 0
+    filings_unreadable: int = 0
     transactions: list[dict[str, Any]] = field(default_factory=list)
     failures: list[tuple[str, str]] = field(default_factory=list)
+    drops: Counter = field(default_factory=Counter)
+    samples: list[tuple[str, str]] = field(default_factory=list)
 
     @property
     def parse_rate(self) -> float | None:
@@ -79,15 +90,35 @@ class BackfillResult:
             return None
         return self.filings_with_transactions / self.filings_fetched
 
+    @property
+    def unreadable_rate(self) -> float | None:
+        """The share that is actually worrying. Unlike `parse_rate`, this
+        excludes filings that correctly had nothing to report."""
+        if not self.filings_with_text:
+            return None
+        return self.filings_unreadable / self.filings_with_text
+
     def summary(self) -> str:
         rate = "—" if self.parse_rate is None else f"{self.parse_rate:.0%}"
         return (
             f"{self.year}: {self.filings_indexed} PTR filings indexed, "
             f"{self.filings_fetched} fetched, {self.filings_with_text} had a text "
             f"layer, {self.filings_with_transactions} yielded transactions "
-            f"({rate}), {len(self.transactions)} transactions total, "
+            f"({rate}), {self.filings_unreadable} unreadable, "
+            f"{len(self.transactions)} transactions total, "
             f"{len(self.failures)} failures"
         )
+
+    def diagnosis(self) -> str:
+        """Why rows were left out, ordered by how many."""
+        if not self.drops:
+            return "No rows were dropped."
+        width = max(len(reason) for reason in self.drops)
+        lines = [
+            f"  {reason.ljust(width)}  {count}"
+            for reason, count in self.drops.most_common()
+        ]
+        return "\n".join(["Rows dropped, by reason:", *lines])
 
 
 def _text_of(pdf_bytes: bytes) -> str:
@@ -196,7 +227,7 @@ class HouseClerkCollector:
     # --- collection --------------------------------------------------
 
     def transactions(
-        self, year: int, *, limit: int | None = None
+        self, year: int, *, limit: int | None = None, keep_samples: int = 0
     ) -> BackfillResult:
         result = BackfillResult(year=year)
         filings = self.index(year)
@@ -222,15 +253,25 @@ class HouseClerkCollector:
                 continue
             result.filings_with_text += 1
 
-            records = parse_transactions(
+            outcome = parse_report(
                 text,
                 member=filing.member,
                 filing_date=filing.filing_date,
                 ptr_link=filing.pdf_url,
             )
-            if records:
+            result.drops.update(outcome.drops)
+
+            if outcome.records:
                 result.filings_with_transactions += 1
-                result.transactions.extend(records)
+                result.transactions.extend(outcome.records)
+
+            # Checked independently of whether anything parsed: a filing
+            # that yields nine transactions and drops a tenth is still
+            # losing a disclosure, and is worth looking at.
+            if outcome.unreadable:
+                result.filings_unreadable += 1
+                if len(result.samples) < keep_samples:
+                    result.samples.append((filing.doc_id, text))
 
         return result
 
