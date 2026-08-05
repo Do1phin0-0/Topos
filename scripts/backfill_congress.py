@@ -78,8 +78,9 @@ def main() -> None:
     since = datetime.strptime(args.since, "%Y-%m-%d").date()
     years = list(range(since.year, date.today().year + 1))
 
-    init_db()
-
+    # Deliberately not connecting yet: --diagnose only reads cached PDFs,
+    # and a parser question should not be blocked by a network problem
+    # between here and the database.
     collector = HouseClerkCollector(delay=args.delay)
     records = []
     drops = Counter()
@@ -154,6 +155,7 @@ def main() -> None:
         print("Nothing to ingest.")
         return
 
+    init_db()
     session = SessionLocal()
     try:
         inserted = persist_signals(session, signals)
