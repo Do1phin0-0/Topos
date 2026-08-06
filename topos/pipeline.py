@@ -22,6 +22,28 @@ from topos.signals.twitter import TwitterSignalExtractor
 _MAX_ENRICHMENT_TICKERS = 20
 
 
+# SQLite allows 999 bound parameters per statement in builds still widely
+# shipped, and a historical backfill hands this function tens of thousands
+# of signals at once. Chunking keeps one IN clause well under any dialect's
+# ceiling; 500 is small enough to be safe and large enough that the round
+# trips are irrelevant next to the parsing that produced the signals.
+_LOOKUP_CHUNK = 500
+
+
+def _existing_keys(session, keys: list[str]) -> set[str]:
+    """Which of these dedup keys are already stored, asked in batches."""
+    found: set[str] = set()
+    for start in range(0, len(keys), _LOOKUP_CHUNK):
+        chunk = keys[start : start + _LOOKUP_CHUNK]
+        found.update(
+            row[0]
+            for row in session.execute(
+                select(SignalRow.dedup_key).where(SignalRow.dedup_key.in_(chunk))
+            ).all()
+        )
+    return found
+
+
 def persist_signals(session, signals: list[Signal]) -> int:
     """Stores signals we haven't seen before, keyed on dedup_key.
 
@@ -31,14 +53,10 @@ def persist_signals(session, signals: list[Signal]) -> int:
     inflates a ticker's apparent signal count in ranking and makes the
     stored history useless for backtesting. Returns the number inserted.
     """
-    seen = {
-        row[0]
-        for row in session.execute(
-            select(SignalRow.dedup_key).where(
-                SignalRow.dedup_key.in_([s.dedup_key for s in signals] or [""])
-            )
-        ).all()
-    }
+    if not signals:
+        return 0
+
+    seen = _existing_keys(session, [s.dedup_key for s in signals])
 
     inserted = 0
     for signal in signals:
