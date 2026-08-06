@@ -1,8 +1,12 @@
-# Where Topos stands — session checkpoint (2026-08-05)
+# Where Topos stands — session checkpoint
 
-Read this first when resuming. It is the whole picture: what this
-project is, what question we are answering right now, exactly where we
-stopped, and the precise next commands.
+> **UPDATE 2026-08-06: validation ran. See `docs/VALIDATION_RESULTS.md`.**
+> Headline: score↔return Spearman −0.009 (p = 0.51, n = 4,640) — no
+> predictive power demonstrated. But only congressional data was loaded,
+> so the multi-source premise had **n = 0** observations and the score
+> under test reduced to trade size minus staleness. Next step: backfill
+> SEC Form 4 from EDGAR so a second source exists to corroborate with.
+> The resume sequence below has already been run successfully.
 
 ## What Topos is
 
