@@ -6,6 +6,10 @@ from sqlalchemy.orm import Session
 from topos.collectors.prices import PriceCollector
 from topos.db.models import PriceBar
 
+# The default yardstick. A strategy that returns +3% while SPY returns
+# +4% is losing money in the only sense that matters.
+BENCHMARK_TICKER = "SPY"
+
 
 def backfill_ticker(db: Session, ticker: str, collector: PriceCollector | None = None) -> int:
     """Fetches daily history for a ticker and stores any bars we don't
@@ -92,6 +96,46 @@ def forward_return(
         return None
 
     return (exit_bar.close - entry.close) / entry.close
+
+
+def excess_forward_return(
+    db: Session,
+    ticker: str,
+    from_date: date,
+    horizon_trading_days: int,
+    benchmark: str = BENCHMARK_TICKER,
+) -> float | None:
+    """Forward return *minus* the benchmark's over the same window.
+
+    Absolute returns cannot answer the question this project asks. Over 60
+    trading days of a rising market, every bucket earns roughly +3% and the
+    score looks like it works; measured against the index, the same +3%
+    may be a loss. A signal is only worth acting on if it beats buying
+    SPY and doing nothing.
+
+    Returns None when either leg is unmeasurable — including when the
+    benchmark has no stored history. Silently falling back to the absolute
+    return would relabel beta as alpha, which is the exact error this
+    exists to prevent.
+    """
+    asset = forward_return(db, ticker, from_date, horizon_trading_days)
+    if asset is None:
+        return None
+
+    market = forward_return(db, benchmark, from_date, horizon_trading_days)
+    if market is None:
+        return None
+
+    return asset - market
+
+
+def has_benchmark_history(db: Session, benchmark: str = BENCHMARK_TICKER) -> bool:
+    """Whether benchmark bars are stored at all — so a report can say
+    'no benchmark' rather than quietly reporting nothing."""
+    return (
+        db.query(PriceBar.id).filter(PriceBar.ticker == benchmark.upper()).first()
+        is not None
+    )
 
 
 def average_dollar_volume(

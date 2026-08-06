@@ -22,6 +22,7 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
+from topos.backtesting.evaluate import _measure
 from topos.backtesting.prices import forward_return
 from topos.db.models import RankedOpportunity
 from topos.db.models import Signal as SignalRow
@@ -170,7 +171,10 @@ def permutation_difference_p_value(
 
 
 def score_return_correlation(
-    db: Session, horizon_days: int = 20, recommendation: str | None = None
+    db: Session,
+    horizon_days: int = 20,
+    recommendation: str | None = None,
+    benchmark: str | None = None,
 ) -> CorrelationResult:
     """Task 4: is score related to what happened next?
 
@@ -187,8 +191,8 @@ def score_return_correlation(
     for opportunity in query.all():
         if opportunity.rank_timestamp is None:
             continue
-        realized = forward_return(
-            db, opportunity.ticker, opportunity.rank_timestamp.date(), horizon_days
+        realized = _measure(
+            db, opportunity.ticker, opportunity.rank_timestamp.date(), horizon_days, benchmark
         )
         if realized is None:
             continue
@@ -209,7 +213,9 @@ def score_return_correlation(
     )
 
 
-def multi_vs_single_source(db: Session, horizon_days: int = 20) -> CohortComparison:
+def multi_vs_single_source(
+    db: Session, horizon_days: int = 20, benchmark: str | None = None
+) -> CohortComparison:
     """Task 5: does corroboration across sources actually help?
 
     This is the empirical test of the project's founding assumption —
@@ -222,8 +228,8 @@ def multi_vs_single_source(db: Session, horizon_days: int = 20) -> CohortCompari
     for opportunity in db.query(RankedOpportunity).all():
         if opportunity.rank_timestamp is None:
             continue
-        realized = forward_return(
-            db, opportunity.ticker, opportunity.rank_timestamp.date(), horizon_days
+        realized = _measure(
+            db, opportunity.ticker, opportunity.rank_timestamp.date(), horizon_days, benchmark
         )
         if realized is None:
             continue

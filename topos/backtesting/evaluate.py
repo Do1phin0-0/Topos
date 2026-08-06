@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
-from topos.backtesting.prices import forward_return
+from topos.backtesting.prices import excess_forward_return, forward_return
 from topos.db.models import RankedOpportunity
 from topos.db.models import Signal as SignalRow
 
@@ -97,6 +97,24 @@ def _direction_multiplier(direction: str | None) -> int | None:
     return None  # no directional claim to grade
 
 
+def _measure(
+    db: Session,
+    ticker: str,
+    entry_date,
+    horizon: int,
+    benchmark: str | None,
+) -> float | None:
+    """One return, either absolute or benchmark-relative.
+
+    The switch lives in one place so the two evaluation paths can never
+    drift into measuring different things — which would make the source
+    table and the bucket table silently incomparable.
+    """
+    if benchmark:
+        return excess_forward_return(db, ticker, entry_date, horizon, benchmark)
+    return forward_return(db, ticker, entry_date, horizon)
+
+
 def _collect(
     db: Session,
     rows: list[tuple[str, str, object]],
@@ -117,6 +135,7 @@ def evaluate_signals(
     db: Session,
     horizons: tuple[int, ...] = DEFAULT_HORIZONS,
     group_by: str = "source",
+    benchmark: str | None = None,
 ) -> list[GroupResult]:
     """Forward performance of raw signals, grouped by `source`,
     `direction`, or `confidence` bucket.
@@ -144,7 +163,7 @@ def evaluate_signals(
             raise ValueError(f"unknown group_by: {group_by!r}")
 
         for horizon in horizons:
-            raw = forward_return(db, signal.ticker, signal.event_date, horizon)
+            raw = _measure(db, signal.ticker, signal.event_date, horizon, benchmark)
             if raw is None:
                 continue
             grouped[label][horizon].append(raw * multiplier)
@@ -163,6 +182,7 @@ def evaluate_score_buckets(
     horizons: tuple[int, ...] = DEFAULT_HORIZONS,
     bucket_width: int = 10,
     recommendation: str | None = "BUY",
+    benchmark: str | None = None,
 ) -> list[GroupResult]:
     """The headline question: does a higher combined score actually earn
     a higher return?
@@ -186,8 +206,8 @@ def evaluate_score_buckets(
         multiplier = -1 if opportunity.recommendation == "SELL" else 1
 
         for horizon in horizons:
-            raw = forward_return(
-                db, opportunity.ticker, opportunity.rank_timestamp.date(), horizon
+            raw = _measure(
+                db, opportunity.ticker, opportunity.rank_timestamp.date(), horizon, benchmark
             )
             if raw is None:
                 continue

@@ -26,7 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from topos.backtesting.prices import backfill_ticker
+from topos.backtesting.prices import BENCHMARK_TICKER, backfill_ticker
 from topos.collectors.house_clerk import HouseClerkCollector, HouseClerkUnavailable
 from topos.collectors.prices import PriceCollector
 from topos.db.session import SessionLocal, init_db
@@ -170,6 +170,10 @@ def main() -> None:
             return
 
         targets = tickers if args.max_tickers == 0 else tickers[: args.max_tickers]
+        if BENCHMARK_TICKER not in targets:
+            # Without the benchmark's own history there is nothing to
+            # measure excess return against, and no signal mentions SPY.
+            targets = [BENCHMARK_TICKER, *targets]
         if len(targets) < len(tickers):
             print(f"Backfilling prices for the first {len(targets)} (--max-tickers).")
         else:

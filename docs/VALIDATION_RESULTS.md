@@ -45,9 +45,9 @@ most important line in it.
 
 ## Findings that do stand
 
-1. **Congressional trades alone show no edge at 20 trading days.**
-   n = 3,433, win rate 50%, average direction-adjusted return −0.27%,
-   Sharpe −0.09. A coin flip.
+1. **Congressional trades alone show no edge at any horizon tested.**
+   5-day: 48% win rate, −0.17%. 20-day: 50%, −0.27%. 60-day: 51%, −0.20%.
+   Three windows, all a coin flip, all slightly negative.
 2. **Score buckets trend the wrong way in the populated range**
    (0–10: +1.34%, 10–20: +0.92%, 20–30: +0.59%, 30–40: −0.44%). Higher
    scores earned *less*. The correlation test does not confirm this as
@@ -70,8 +70,17 @@ most important line in it.
   the transaction date measure informational value — what the member
   knew — not returns a follower could have captured. A disclosure-dated
   run would answer the tradeable question and is a one-flag change.
-- **One horizon.** 20 trading days is a choice, not a discovery.
-  5-day and 60-day runs cost one command each.
+- ~~**One horizon.**~~ **Resolved 2026-08-06.** Re-run at 5 and 60 trading
+  days: Spearman +0.018 (p = 0.22, n = 4,744) and +0.004 (p = 0.81,
+  n = 4,392). Three horizons, all within ±0.02 of zero. "We looked at the
+  wrong window" is no longer an available explanation.
+- **The returns above are absolute, not benchmark-relative** — a flaw in
+  the measurement, found by reading the 60-day run. Every populated bucket
+  there earned roughly +3%, which reads as success and is approximately
+  what the market returned over the same three months. A strategy earning
+  +3% while SPY earns +4% is losing. Fixed the same day: `--benchmark SPY`
+  is now the default and the excess return is what gets reported. **Every
+  number in this document predates that fix and is absolute.**
 
 ## What this does and does not license
 

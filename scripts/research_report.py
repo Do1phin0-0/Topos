@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from sqlalchemy import String, cast, or_
 
 from topos.backtesting.evaluate import evaluate_score_buckets, evaluate_signals
+from topos.backtesting.prices import BENCHMARK_TICKER, has_benchmark_history
 from topos.backtesting.research import (
     MIN_SAMPLE_FOR_CONFIDENCE,
     MIN_SAMPLE_FOR_INFERENCE,
@@ -91,7 +92,7 @@ def formula_mix_warning(legacy: int, current: int) -> str | None:
     return None
 
 
-def build_report(session, horizon: int) -> str:
+def build_report(session, horizon: int, benchmark: str | None = None) -> str:
     out: list[str] = []
     w = out.append
 
@@ -104,8 +105,11 @@ def build_report(session, horizon: int) -> str:
 
     w("# Signal validation research report")
     w("")
+    measure = (
+        f"returns measured against {benchmark}" if benchmark else "absolute returns"
+    )
     w(f"Generated {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC · "
-      f"holding period {horizon} trading days")
+      f"holding period {horizon} trading days · {measure}")
     w("")
     w("## 0. Data inventory")
     w("")
@@ -126,6 +130,23 @@ def build_report(session, horizon: int) -> str:
         w(warning)
         w("")
 
+    if benchmark and not has_benchmark_history(session, benchmark):
+        # Every number below would be blank, because an excess return
+        # needs both legs. Say why, rather than printing empty tables.
+        w(f"> **No price history for {benchmark}.** Returns cannot be measured "
+          f"against a benchmark that isn't stored, and falling back to absolute "
+          f"returns would relabel market drift as skill. Backfill it first:\n"
+          f"> `python scripts/backfill_prices.py {benchmark}`")
+        w("")
+        return "\n".join(out)
+
+    if not benchmark:
+        w("> **Absolute returns.** These are not benchmark-relative: over 60 "
+          "trading days of a rising market every bucket earns roughly the "
+          "market's return, which reads as success. Pass `--benchmark SPY` to "
+          "measure what the score adds beyond buying the index.")
+        w("")
+
     if signal_count == 0 or ranked_count == 0 or price_tickers == 0:
         w("> **No data to analyse.** Run the pipeline and the congressional")
         w("> backfill first; forward returns cannot be measured without both")
@@ -136,7 +157,9 @@ def build_report(session, horizon: int) -> str:
     # --- Task 2 ---
     w("## 1. Performance by signal source")
     w("")
-    source_stats = evaluate_signals(session, horizons=(horizon,), group_by="source")
+    source_stats = evaluate_signals(
+        session, horizons=(horizon,), group_by="source", benchmark=benchmark
+    )
     if not source_stats:
         w("No source has a measurable forward window yet.")
     else:
@@ -161,7 +184,9 @@ def build_report(session, horizon: int) -> str:
     # --- Task 3 ---
     w("## 2. Performance by score bucket")
     w("")
-    buckets = evaluate_score_buckets(session, horizons=(horizon,), recommendation=None)
+    buckets = evaluate_score_buckets(
+        session, horizons=(horizon,), recommendation=None, benchmark=benchmark
+    )
     if not buckets:
         w("No scored opportunity has a closed forward window yet.")
     else:
@@ -186,7 +211,9 @@ def build_report(session, horizon: int) -> str:
     # --- Task 4 ---
     w("## 3. Correlation between score and forward return")
     w("")
-    correlation = score_return_correlation(session, horizon_days=horizon)
+    correlation = score_return_correlation(
+        session, horizon_days=horizon, benchmark=benchmark
+    )
     w(_table(
         [
             ["observations", str(correlation.n)],
@@ -207,7 +234,9 @@ def build_report(session, horizon: int) -> str:
     # --- Task 5 ---
     w("## 4. Multi-source agreement vs single-source")
     w("")
-    cohorts = multi_vs_single_source(session, horizon_days=horizon)
+    cohorts = multi_vs_single_source(
+        session, horizon_days=horizon, benchmark=benchmark
+    )
     rows = [
         [c.label, str(c.n), "—" if c.win_rate is None else f"{c.win_rate:.0%}", _pct(c.mean_return)]
         for c in cohorts.cohorts
@@ -261,12 +290,27 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate the validation research report.")
     parser.add_argument("--horizon", type=int, default=20, help="Holding period in trading days.")
     parser.add_argument("--output", help="Write to a file instead of stdout.")
+    parser.add_argument(
+        "--benchmark",
+        default=BENCHMARK_TICKER,
+        help=(
+            f"Measure returns relative to this ticker (default {BENCHMARK_TICKER}). "
+            "Its price history must be backfilled."
+        ),
+    )
+    parser.add_argument(
+        "--absolute",
+        action="store_true",
+        help="Report raw returns instead, market drift and all.",
+    )
     args = parser.parse_args()
 
     init_db()
     session = SessionLocal()
     try:
-        report = build_report(session, args.horizon)
+        report = build_report(
+            session, args.horizon, benchmark=None if args.absolute else args.benchmark
+        )
     finally:
         session.close()
 
