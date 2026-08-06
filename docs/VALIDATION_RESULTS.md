@@ -85,9 +85,10 @@ most important line in it.
   has done its job, and the evidence now says the *specific* missing
   thing is a second source with history.
 
-## Recommended next step
+## Next step — built, awaiting a run
 
-**Backfill SEC Form 4 from the EDGAR full-index archive.** It is the only
+**SEC Form 4 backfill from the EDGAR full-index archive**
+(`scripts/backfill_form4.py`, added 2026-08-06). It is the only
 other source with deep, downloadable history (1993Q1–present, see
 `docs/DATA_LINEAGE.md`), and it is the shortest path to actually testing
 the multi-source thesis rather than a degenerate one-source shadow of it.
