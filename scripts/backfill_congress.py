@@ -26,12 +26,44 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from sqlalchemy import delete
+
 from topos.backtesting.prices import BENCHMARK_TICKER, backfill_ticker
 from topos.collectors.house_clerk import HouseClerkCollector, HouseClerkUnavailable
 from topos.collectors.prices import PriceCollector
+from topos.db.models import Signal as SignalRow
 from topos.db.session import SessionLocal, init_db
 from topos.pipeline import persist_signals
 from topos.signals.congress import extract_congress_signal
+
+
+def drop_other_basis(session, keeping: str) -> int:
+    """Removes congressional signals dated by the basis we are not using.
+
+    The same trade dated by transaction and again by disclosure is two
+    rows, same ticker, same source. The ranking engine counts distinct
+    sources per ticker, so those two would not inflate the source count —
+    but they would double the signal count, drag the staleness penalty
+    around, and put the same disclosure in a snapshot twice under two
+    different dates. A database holds one basis at a time.
+
+    Cheap to undo: congressional signals rebuild from cached PDFs in
+    seconds, so nothing is lost that a re-run cannot restore.
+    """
+    rows = session.query(SignalRow).filter(SignalRow.source.like("congress_%")).all()
+    doomed = [
+        row.id
+        for row in rows
+        if (row.evidence or {}).get("date_basis", "transaction") != keeping
+    ]
+    if not doomed:
+        return 0
+    for start in range(0, len(doomed), 500):  # SQLite parameter ceiling
+        session.execute(
+            delete(SignalRow).where(SignalRow.id.in_(doomed[start : start + 500]))
+        )
+    session.commit()
+    return len(doomed)
 
 
 def main() -> None:
@@ -63,6 +95,17 @@ def main() -> None:
         type=float,
         default=0.4,
         help="Seconds between requests, to stay a polite client.",
+    )
+    parser.add_argument(
+        "--date-basis",
+        choices=["transaction", "disclosure"],
+        default="transaction",
+        help=(
+            "Which date anchors the signal. 'transaction' is when the member "
+            "traded (was the trade informed?); 'disclosure' is when the filing "
+            "became public, up to 45 days later (could a follower have traded "
+            "it?). Switching basis rebuilds the congressional signals."
+        ),
     )
     parser.add_argument(
         "--diagnose",
@@ -144,7 +187,7 @@ def main() -> None:
 
     signals = []
     for record in records:
-        signal = extract_congress_signal(record)
+        signal = extract_congress_signal(record, args.date_basis)
         # Undateable and non-directional records are dropped by the
         # extractor itself; only the date window is applied here.
         if signal and signal.event_date >= since:
@@ -158,6 +201,17 @@ def main() -> None:
     init_db()
     session = SessionLocal()
     try:
+        # The same trade dated two ways is two rows on the same ticker from
+        # the same source, and the ranking engine would read that as two
+        # sources corroborating each other — a fabricated agreement bonus on
+        # one disclosure. So a database holds one basis at a time.
+        removed = drop_other_basis(session, args.date_basis)
+        if removed:
+            print(
+                f"  Removed {removed} congressional signals dated by the other "
+                "basis, so the two cannot be read as corroborating each other."
+            )
+
         inserted = persist_signals(session, signals)
         print(f"  Persisted {inserted} new ({len(signals) - inserted} already known).")
 
