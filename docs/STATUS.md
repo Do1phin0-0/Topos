@@ -69,8 +69,10 @@ recommendation. All six ran. All six are in
   is blocked without the VPN (irrelevant now that research is local), and
   stooq.com DNS broke *under* it. Rule: pull with VPN on, fetch with it
   off.
-- `topos.db` holds **58,327 signals, 21,122 rankings, 452 tickers with
-  price history** plus SPY. Roughly 92 MB.
+- `topos.db` holds **~58,000 signals, ~21,000 rankings, 1,254 tickers
+  with price history** (963k+ bars) plus SPY. Several hundred MB.
+  Congressional signals are currently **disclosure-dated**; switching
+  basis rebuilds them from cache in seconds.
 - Downloads are cached in `.cache/house_clerk/` and `.cache/edgar/` —
   re-parsing is free, nothing re-downloads.
 - **PowerShell 5 mis-renders the UTF-8 report.** Use
@@ -88,14 +90,9 @@ py scripts/research_report.py --absolute --output report-abs.md
 
 ## Open items
 
-1. **Render database password is leaked** (pasted in chat) and rotation is
-   unconfirmed. Render offers no password reset for Postgres, so the
-   practical fix is to delete that database — everything in it is
-   superseded by the local file. Its only consumer is a dashboard showing
-   stale numbers.
-2. PR #3 is open and unmerged; this branch has moved far past it.
-3. Dashboard redesign — was deferred pending validation. Validation is
+1. PR #3 is open and unmerged; this branch has moved far past it.
+2. Dashboard redesign — was deferred pending validation. Validation is
    done, but there is now nothing worth putting on a dashboard.
-4. Untested sources: earnings, 13F, news, technical, sentiment. Note that
+3. Untested sources: earnings, 13F, news, technical, sentiment. Note that
    adding a second source is what produced the multi-source finding, and
    it was negative.
