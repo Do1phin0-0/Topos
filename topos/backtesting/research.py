@@ -32,6 +32,18 @@ MIN_SAMPLE_FOR_INFERENCE = 30
 # Below this, findings are reported but flagged as provisional.
 MIN_SAMPLE_FOR_CONFIDENCE = 100
 
+# Significance is not the same thing as size, and a large sample makes the
+# difference stark: at n≈11,000 a Spearman of 0.02 clears p<0.05 while
+# explaining 0.04% of the variation in returns. Reporting that as "the
+# ranking has directional validity" is how a backtest manufactures
+# confidence — the number is real, the edge is not.
+#
+# 0.05 is deliberately a low bar rather than a safe one. Quant equity
+# desks do trade information coefficients in this range, but only with
+# transaction costs, turnover and breadth modelled, none of which Topos
+# does. Clearing it means "worth investigating", never "worth trading".
+MIN_ACTIONABLE_CORRELATION = 0.05
+
 PERMUTATIONS = 10_000
 _SEED = 20260805  # fixed so a report is reproducible
 
@@ -45,6 +57,25 @@ class CorrelationResult:
     horizon_days: int
 
     @property
+    def is_negligible(self) -> bool:
+        """Statistically detectable, too small to mean anything.
+
+        Kept distinct from "no relationship" because they call for
+        different responses: no relationship means look elsewhere, this
+        means the effect is real but a rounding error next to the costs
+        and variance of actually trading it.
+        """
+        return (
+            self.spearman is not None
+            and abs(self.spearman) < MIN_ACTIONABLE_CORRELATION
+        )
+
+    @property
+    def variance_explained(self) -> float | None:
+        """The share of return variation the score accounts for."""
+        return None if self.spearman is None else self.spearman**2
+
+    @property
     def verdict(self) -> str:
         if self.n < MIN_SAMPLE_FOR_INFERENCE:
             return "INSUFFICIENT DATA"
@@ -52,6 +83,12 @@ class CorrelationResult:
             return "INSUFFICIENT DATA"
         if self.p_value > 0.05:
             return "NO SIGNIFICANT RELATIONSHIP"
+        if self.is_negligible:
+            return (
+                f"NEGLIGIBLE — statistically detectable at n={self.n}, "
+                f"but |ρ|={abs(self.spearman):.3f} explains "
+                f"{self.variance_explained:.2%} of return variation"
+            )
         if self.spearman > 0:
             return "POSITIVE — higher scores earned higher returns"
         return "NEGATIVE — higher scores earned LOWER returns"
@@ -296,6 +333,19 @@ def weight_recommendation(
             f"(Spearman {correlation.spearman:+.3f}, p={correlation.p_value:.3f}). "
             "The model has not demonstrated predictive power, so there is no "
             "evidence-based direction in which to move the weights."
+        )
+        return recommendation
+
+    if correlation.is_negligible:
+        recommendation.reasons.append(
+            f"Score and forward return are correlated at Spearman "
+            f"{correlation.spearman:+.3f} (p={correlation.p_value:.3f}, "
+            f"n={correlation.n}) — statistically detectable, but explaining "
+            f"{correlation.variance_explained:.2%} of return variation. A "
+            f"sample this large makes tiny effects significant; significance "
+            f"is not size. Below |ρ|={MIN_ACTIONABLE_CORRELATION}, and with no "
+            "transaction-cost or turnover model in this project, there is "
+            "nothing here worth retuning weights against."
         )
         return recommendation
 

@@ -28,6 +28,7 @@ from topos.backtesting.research import (
     MIN_SAMPLE_FOR_INFERENCE,
     multi_vs_single_source,
     score_return_correlation,
+    spearman,
     weight_recommendation,
 )
 from topos.db.models import PriceBar, RankedOpportunity
@@ -206,6 +207,31 @@ def build_report(session, horizon: int, benchmark: str | None = None) -> str:
         w("A working score shows a rising avg return down this table. "
           "A flat or non-monotonic column means the score is not "
           "discriminating, whatever its individual values look like.")
+        w("")
+        # Checked rather than left to the eye: a reader looking for a
+        # gradient will usually find one in ten noisy numbers.
+        usable = [
+            (index, bucket.horizons[horizon].avg_return)
+            for index, bucket in enumerate(buckets)
+            if bucket.horizons[horizon].is_meaningful
+            and bucket.horizons[horizon].avg_return is not None
+        ]
+        if len(usable) >= 3:
+            rho = spearman([i for i, _ in usable], [r for _, r in usable])
+            if rho is None:
+                trend = "could not be measured"
+            elif rho >= 0.7:
+                trend = f"**rises consistently** (bucket-order ρ={rho:+.2f})"
+            elif rho <= -0.7:
+                trend = f"**falls consistently** (bucket-order ρ={rho:+.2f})"
+            else:
+                trend = (
+                    f"**does not order cleanly** (bucket-order ρ={rho:+.2f}) — "
+                    "the column moves up and down rather than trending, which "
+                    "is what noise looks like"
+                )
+            w(f"Across the {len(usable)} buckets with usable samples, "
+              f"average return {trend}.")
     w("")
 
     # --- Task 4 ---
