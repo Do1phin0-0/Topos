@@ -221,12 +221,12 @@ def build_report(session, horizon: int, benchmark: str | None = None) -> str:
             if rho is None:
                 trend = "could not be measured"
             elif rho >= 0.7:
-                trend = f"**rises consistently** (bucket-order ρ={rho:+.2f})"
+                trend = f"**rises consistently** (bucket-order rho={rho:+.2f})"
             elif rho <= -0.7:
-                trend = f"**falls consistently** (bucket-order ρ={rho:+.2f})"
+                trend = f"**falls consistently** (bucket-order rho={rho:+.2f})"
             else:
                 trend = (
-                    f"**does not order cleanly** (bucket-order ρ={rho:+.2f}) — "
+                    f"**does not order cleanly** (bucket-order rho={rho:+.2f}) — "
                     "the column moves up and down rather than trending, which "
                     "is what noise looks like"
                 )
@@ -341,9 +341,17 @@ def main() -> None:
         session.close()
 
     if args.output:
-        Path(args.output).write_text(report)
+        # Explicit UTF-8: Path.write_text defaults to the locale
+        # encoding, which on Windows is cp1252 and cannot represent an
+        # em dash, let alone a Greek letter. The report is Markdown and
+        # Markdown is UTF-8.
+        Path(args.output).write_text(report, encoding="utf-8")
         print(f"Wrote {args.output}")
     else:
+        # Same reason as the file write: a Windows console is cp1252 by
+        # default and raises rather than substituting.
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
         print(report)
 
 

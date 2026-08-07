@@ -114,3 +114,22 @@ def test_json_null_attribution_counts_as_legacy_too(db):
     assert session.query(RankedOpportunity).filter(
         RankedOpportunity.ticker == json_null
     ).filter(_no_attribution()).count() == 1
+
+
+def test_the_report_survives_a_windows_console(db):
+    """The report must be writable where it is actually read.
+
+    A Greek rho in a verdict string crashed the run on Windows:
+    `Path.write_text` defaults to the locale encoding, cp1252 has no
+    U+03C1, and the whole report was lost at the final write. The file is
+    now written as UTF-8, and this keeps the *content* within reach of a
+    cp1252 console too, so `Get-Content` renders it rather than mangling
+    it.
+    """
+    session, tickers = db
+    _ranking(session, tickers[0], {"total": 72.0})
+    session.commit()
+
+    report = build_report(session, horizon=20)
+
+    report.encode("cp1252")  # raises if a character slipped back in

@@ -86,7 +86,7 @@ class CorrelationResult:
         if self.is_negligible:
             return (
                 f"NEGLIGIBLE — statistically detectable at n={self.n}, "
-                f"but |ρ|={abs(self.spearman):.3f} explains "
+                f"but |rho|={abs(self.spearman):.3f} explains "
                 f"{self.variance_explained:.2%} of return variation"
             )
         if self.spearman > 0:
@@ -343,7 +343,7 @@ def weight_recommendation(
             f"n={correlation.n}) — statistically detectable, but explaining "
             f"{correlation.variance_explained:.2%} of return variation. A "
             f"sample this large makes tiny effects significant; significance "
-            f"is not size. Below |ρ|={MIN_ACTIONABLE_CORRELATION}, and with no "
+            f"is not size. Below |rho|={MIN_ACTIONABLE_CORRELATION}, and with no "
             "transaction-cost or turnover model in this project, there is "
             "nothing here worth retuning weights against."
         )

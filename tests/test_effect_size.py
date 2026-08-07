@@ -126,3 +126,38 @@ def test_the_floor_sits_where_the_constant_says():
 
     assert "NEGLIGIBLE" in just_under.verdict
     assert just_over.verdict.startswith("POSITIVE")
+
+
+# --- output has to survive the console it is read in ------------------
+
+
+def test_every_verdict_string_is_printable_on_windows():
+    """A Greek rho in the negligible verdict crashed the real run.
+
+    `Path.write_text` defaults to the locale encoding; on Windows that is
+    cp1252, which has no U+03C1, so the entire report was lost at the
+    final write after all the analysis had already been done. The file is
+    now written as UTF-8, but the strings themselves are kept inside
+    cp1252 so a PowerShell `Get-Content` renders them rather than
+    mangling them.
+    """
+    cases = [
+        _correlation(n=11348, rho=0.020, p=0.031),   # NEGLIGIBLE
+        _correlation(n=11348, rho=-0.020, p=0.031),  # NEGLIGIBLE, negative
+        _correlation(n=2000, rho=0.18, p=0.001),     # POSITIVE
+        _correlation(n=2000, rho=-0.18, p=0.001),    # NEGATIVE
+        _correlation(n=11348, rho=0.002, p=0.700),   # NO SIGNIFICANT
+        _correlation(n=5, rho=0.5, p=0.01),          # INSUFFICIENT
+    ]
+
+    for case in cases:
+        case.verdict.encode("cp1252")
+
+
+def test_every_recommendation_reason_is_printable_on_windows():
+    for rho, p in [(0.020, 0.031), (0.18, 0.001), (-0.18, 0.001), (0.002, 0.700)]:
+        result = weight_recommendation(
+            _correlation(n=11348, rho=rho, p=p), _cohorts(-0.0123, 0.015), []
+        )
+        for reason in result.reasons:
+            reason.encode("cp1252")
