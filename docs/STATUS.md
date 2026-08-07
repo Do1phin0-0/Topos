@@ -1,13 +1,17 @@
 # Where Topos stands — session checkpoint
 
-> **VALIDATION COMPLETE — 2026-08-07. See `docs/VALIDATION_RESULTS.md`.**
-> The scoring model has no tradeable predictive power. Score/return
-> Spearman +0.020 (explains 0.04% of variation) on 11,348 observations
-> across two independent sources, measured against SPY. Multi-source
-> agreement *underperformed* single-source by 1.23% (p=0.015) —
-> the founding assumption, contradicted. Both sources are individually
-> negative vs the market. No weight tuning, no trading. The freeze on
-> new work is lifted; the open question is now what to build next, not
+> **VALIDATION COMPLETE AND CONFIRMED — 2026-08-07.**
+> See `docs/VALIDATION_RESULTS.md`. The scoring model does not predict
+> returns. Both known holes were then closed — price coverage repaired
+> from 452 to 1,254 tickers, and congressional signals re-dated by
+> disclosure — and the verdict got *cleaner*: score-return correlation
+> fell to rho=+0.012 at p=0.086 (no longer significant at all), and the
+> multi-source underperformance finding vanished (p=0.015 -> p=0.057),
+> having been an artifact of the biased sample. Congress standalone is
+> -0.04% transaction-dated, +0.13% disclosure-dated; Form 4 is -0.34%.
+> All indistinguishable from zero against SPY.
+>
+> Nothing left to rescue. The open question is what Topos becomes, not
 > whether this model works.
 
 ## What Topos is

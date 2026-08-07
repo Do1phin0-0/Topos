@@ -1,5 +1,13 @@
 # Validation results — final, 2026-08-07
 
+> **Both known holes were closed on 2026-08-07 and every number below was
+> re-measured. The verdict did not change; it got cleaner.** Price
+> coverage went from 452 tickers to 1,254 (963,329 new bars), and
+> congressional signals were re-dated by disclosure as well as by
+> transaction. See "After closing both holes" at the end — the headline
+> is that the two effects this document treated as real both weakened,
+> and one of them disappeared entirely.
+
 The question was: **does the scoring model have predictive power?**
 
 **Answer: no.** Not "not yet", not "the sample is too small" — the
@@ -132,3 +140,61 @@ The machinery built to determine that is sound and reusable:
 point-in-time replay, benchmark-relative returns, permutation tests,
 sample-size and effect-size floors, and a report that refuses to endorse
 its own output. That is the durable asset here. The scoring model is not.
+
+
+## After closing both holes
+
+Two things could have overturned the null verdict. Both were addressed,
+and the result is a stronger null than before.
+
+**Coverage repair.** 891 of the 983 missing tickers came back with data —
+963,329 price bars. Price history went from 452 tickers to **1,254**, and
+measurable observations from 11,348 to **19,392**. The earlier gap was
+indeed a source outage, not a fact about the market.
+
+**Disclosure dating.** Congressional signals re-anchored to when the
+filing became public rather than when the member traded, answering the
+tradeable question instead of the informational one.
+
+### What changed
+
+| measure | original (452 tickers) | coverage repaired | + disclosure-dated |
+|---|---|---|---|
+| observations | 11,348 | 19,392 | 19,046 |
+| score↔return | ρ=+0.020, p=0.031 | ρ=+0.012, **p=0.086** | ρ=+0.011, **p=0.122** |
+| verdict | NEGLIGIBLE | **NO SIGNIFICANT RELATIONSHIP** | **NO SIGNIFICANT RELATIONSHIP** |
+| multi vs single | −1.23%, **p=0.015** | −0.71%, **p=0.057** | −0.66%, **p=0.081** |
+| verdict | UNDERPERFORMS | **NO SIGNIFICANT DIFFERENCE** | **NO SIGNIFICANT DIFFERENCE** |
+| congress standalone | −0.21% | −0.04% | **+0.13%** |
+| Form 4 standalone | −0.34% | −0.34% | −0.34% |
+
+### Three things worth stating plainly
+
+1. **The multi-source finding was an artifact.** This document called it
+   "the one result with an economically meaningful magnitude". With a
+   proper sample it fell from −1.23% (p=0.015) to −0.71% (p=0.057) and
+   stopped being significant. It was a property of the biased 452-ticker
+   sample, not of the signals. Treat the earlier claim as withdrawn.
+
+2. **The score correlation also failed to survive.** ρ=0.020 at p=0.031
+   became ρ=0.012 at p=0.086 — no longer statistically detectable at all,
+   let alone actionable. The effect-size floor turned out to be belt and
+   braces: with a better sample, the significance test rejects it on its
+   own.
+
+3. **The survivorship prediction was directionally right and small.**
+   Congress improved from −0.21% to −0.04% once the missing names were
+   recovered, consistent with the missing names skewing toward winners.
+   It did not turn a losing signal into a winning one.
+
+Disclosure-dating nudged congress to **+0.13%** with a 50% win rate and a
+Sharpe of 0.05 — indistinguishable from zero, and mildly interesting only
+because the *opposite* was expected. If any tiny effect exists it looks
+more like post-disclosure attention than private information. It is not
+large enough to be worth another sentence.
+
+### The verdict, now properly earned
+
+Every plausible rescue has been tried: more data, better coverage, three
+horizons, a benchmark, and both date conventions. The scoring model does
+not predict returns. That is now a measurement rather than a suspicion.
