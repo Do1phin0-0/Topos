@@ -1,12 +1,14 @@
 # Where Topos stands — session checkpoint
 
-> **UPDATE 2026-08-06: validation ran. See `docs/VALIDATION_RESULTS.md`.**
-> Headline: score↔return Spearman −0.009 (p = 0.51, n = 4,640) — no
-> predictive power demonstrated. But only congressional data was loaded,
-> so the multi-source premise had **n = 0** observations and the score
-> under test reduced to trade size minus staleness. Next step: backfill
-> SEC Form 4 from EDGAR so a second source exists to corroborate with.
-> The resume sequence below has already been run successfully.
+> **VALIDATION COMPLETE — 2026-08-07. See `docs/VALIDATION_RESULTS.md`.**
+> The scoring model has no tradeable predictive power. Score/return
+> Spearman +0.020 (explains 0.04% of variation) on 11,348 observations
+> across two independent sources, measured against SPY. Multi-source
+> agreement *underperformed* single-source by 1.23% (p=0.015) —
+> the founding assumption, contradicted. Both sources are individually
+> negative vs the market. No weight tuning, no trading. The freeze on
+> new work is lifted; the open question is now what to build next, not
+> whether this model works.
 
 ## What Topos is
 
@@ -19,98 +21,77 @@ explicit opt-in — is meant to trade via Alpaca, paper first. The owner's
 stated end goal: an auto-trading bot, reached gradually and never
 silently.
 
-## The current objective (nothing else until this is done)
+## The objective, now answered
 
-**Determine whether the scoring model has predictive power.** Six parts:
-congressional backfill · per-source signal validation · score-bucket
-performance · score↔forward-return correlation · multi-source agreement
-vs single source · a recommendation on weights. Constraint from the
-owner: **no new signals, no UI work, until validation is complete.**
+**Did the scoring model have predictive power?** Six parts: congressional
+backfill · per-source validation · score-bucket performance ·
+score-return correlation · multi-source agreement · a weights
+recommendation. All six ran. All six are in
+`docs/VALIDATION_RESULTS.md`. The answer is no.
 
 ## What is built and pushed (branch `claude/topos-repo-purpose-xsj7u0`)
 
-Everything needed for validation exists and is tested (198 passing):
+242 tests passing.
 
-- **Congressional collector rebuilt from the ground truth.** The House
-  and Senate Stock Watcher mirrors died (S3 AccessDenied for everyone,
-  Aug 2026). Topos now downloads the House Clerk's yearly archive and
-  parses each Periodic Transaction Report PDF itself
-  (`topos/collectors/house_clerk.py` + `ptr_parser.py`). Verified on
-  real filings: ~11,400 transactions parsed from 2024–2026, zero
-  unreadable filings, and every dropped row confirmed to be bonds /
-  property / funds (correct exclusions). Senate is dark — no bulk
-  archive exists. Multi-source conclusions must carry that caveat.
+- **Congressional collector** (`topos/collectors/house_clerk.py` +
+  `ptr_parser.py`) — the House and Senate Stock Watcher mirrors died
+  (S3 AccessDenied, Aug 2026), so this downloads the House Clerk's yearly
+  archive and parses each PTR PDF. ~11,400 transactions from 2024-2026,
+  zero unreadable filings. Senate is dark: no bulk archive exists.
+- **Form 4 collector** (`topos/collectors/edgar_archive.py`) — EDGAR
+  quarterly full-index, filtered by CIK before anything downloads because
+  ~250k Form 4s are filed per year. 44,435 signals parsed.
 - **Price collector is a fallback chain** (`topos/collectors/prices.py`):
-  Stooq, then Yahoo chart API, both key-free; a host that won't connect
-  three times in a row is benched for the run. Built because Stooq
-  started 404ing on real symbols mid-backfill.
-- **Ranking replay** (`scripts/replay_rankings.py`): writes point-in-time
-  rankings every 28 days across signal history, so score validation has
-  a sample now instead of accruing one live over months. Snapshots never
-  see their own future; staleness is measured against the snapshot date;
-  re-runs replace their own rows.
-- **Research report** (`scripts/research_report.py`): all six validation
-  sections, sample-size guardrails (no inference below n=30, provisional
-  below n=100), permutation tests, and a legacy-vs-current formula split.
-- **SQLite support end to end**, so none of this needs Postgres, Docker,
-  or any network beyond the data fetches themselves.
+  Stooq, then Yahoo, both key-free; a host that will not connect three
+  times running is benched for the rest of the run.
+- **Benchmark-relative returns** — `--benchmark SPY` by default. An
+  unmeasurable benchmark leg yields None rather than falling back to the
+  absolute return, which would relabel market drift as skill.
+- **Ranking replay** (`scripts/replay_rankings.py`) — point-in-time
+  snapshots every 28 days across signal history. Snapshots never see
+  their own future; re-runs replace their own rows.
+- **Research report** (`scripts/research_report.py`) — six sections,
+  permutation tests, sample-size floors (n>=30 to infer, n>=100 to be
+  non-provisional) *and* an effect-size floor (|rho|>=0.05 to be
+  actionable), plus a monotonicity check on the bucket table.
+- **SQLite end to end** — no Postgres, Docker or network needed for
+  research.
 
-## The owner's machine — hard-won environment facts
+## The owner's machine
 
-- **Local database:** `$env:DATABASE_URL = "sqlite:///topos.db"` in the
-  project folder. Must be re-set in every new PowerShell window,
-  otherwise scripts silently point at Render again.
-- **VPN ON → GitHub works** (git pull needs it) but stooq.com DNS broke
-  under it. **VPN OFF → outbound 5432 is blocked** by the home network
-  (only matters for Render, which validation no longer uses).
-  Practical rule: *pull with VPN on, fetch prices with VPN off.*
-- The local `topos.db` already holds **10,196 signals**. It has **zero
-  price bars and zero rankings** — that is the unfinished part.
-- House Clerk PDFs are cached in `.cache/house_clerk/` — re-parses are
-  free, nothing re-downloads.
+- **Local database:** `$env:DATABASE_URL = "sqlite:///topos.db"`, must be
+  re-set in every new PowerShell window or scripts point at Render again.
+- **VPN ON → GitHub works; VPN OFF → price fetches work.** Outbound 5432
+  is blocked without the VPN (irrelevant now that research is local), and
+  stooq.com DNS broke *under* it. Rule: pull with VPN on, fetch with it
+  off.
+- `topos.db` holds **58,327 signals, 21,122 rankings, 452 tickers with
+  price history** plus SPY. Roughly 92 MB.
+- Downloads are cached in `.cache/house_clerk/` and `.cache/edgar/` —
+  re-parsing is free, nothing re-downloads.
+- **PowerShell 5 mis-renders the UTF-8 report.** Use
+  `Get-Content report.md -Encoding UTF8`, or just open it in an editor.
 
-## Where we stopped
-
-The owner ran `git pull` (VPN state unknown at that moment) and it
-failed; session ended there. The three data-producing commands below
-have not run yet on the latest code.
-
-## Exact resume sequence
+## Re-running the analysis
 
 ```powershell
-# 1. VPN ON for the pull:
-git pull origin claude/topos-repo-purpose-xsj7u0
-
-# 2. Same window, every time:
 $env:DATABASE_URL = "sqlite:///topos.db"
-
-# 3. VPN OFF for the fetches (15–25 min; watch "M bars stored" climb —
-#    if it is still 0 after ~50 tickers, stop and report the warnings):
-py scripts/backfill_congress.py --since 2024-01-01 --max-tickers 0
-
-# 4. Fast:
-py scripts/replay_rankings.py --since 2024-01-01
+py scripts/replay_rankings.py --since 2024-01-01   # only after new signals
 py scripts/research_report.py --output report.md
+py scripts/research_report.py --horizon 60 --output report-60d.md
+py scripts/research_report.py --absolute --output report-abs.md
 ```
 
-Then read `report.md` — that is the deliverable this whole phase exists
-to produce.
+## Open items
 
-## If prices still store zero bars
-
-Both free sources are then blocked from that network. Next move (already
-agreed in principle): wire the Alpaca market-data API as a third source —
-the owner has an Alpaca account; keys go in `.env` as `ALPACA_API_KEY` /
-`ALPACA_SECRET_KEY`.
-
-## Open items beyond validation (parked, in order of urgency)
-
-1. **Render database password is leaked** (pasted in chat) and rotation
-   is unconfirmed. The DB also appears reachable from any IP. Rotate in
-   the Render dashboard; update `DATABASE_URL` env var on the dashboard
-   service afterward.
+1. **Render database password is leaked** (pasted in chat) and rotation is
+   unconfirmed. Render offers no password reset for Postgres, so the
+   practical fix is to delete that database — everything in it is
+   superseded by the local file. Its only consumer is a dashboard showing
+   stale numbers.
 2. PR #3 is open and unmerged; this branch has moved far past it.
-3. Bloomberg as a source: parked — conflicts with the owner's own
-   "no new signals until validation" rule, and needs a Terminal license.
-4. Dashboard redesign: explicitly deferred until validation completes.
-5. Senate coverage (eFD scraper) if congressional signal proves out.
+3. Dashboard redesign — was deferred pending validation. Validation is
+   done, but there is now nothing worth putting on a dashboard.
+4. Untested sources: earnings, 13F, news, technical, sentiment. Note that
+   adding a second source is what produced the multi-source finding, and
+   it was negative.

@@ -1,112 +1,121 @@
-# Validation results — first run, 2026-08-06
+# Validation results — final, 2026-08-07
 
 The question was: **does the scoring model have predictive power?**
 
-**Answer: not demonstrated.** Score and 20-day forward return show
-Spearman −0.009 (p = 0.51) across 4,640 observations. That is not a
-small-sample shrug — the sample is 46× the inference threshold and the
-result is indistinguishable from zero. On this evidence the score does
-not rank opportunities.
+**Answer: no.** Not "not yet", not "the sample is too small" — the
+experiment ran properly, on two independent sources, 58,327 signals,
+21,122 point-in-time rankings, measured against SPY, and the model does
+not rank opportunities in a way that earns money.
 
-**But read the next section before drawing conclusions from that**, because
-the thing tested was not the model the system is designed to run.
+This document is the record of that, including the two occasions the
+report itself got the answer wrong before the measurement was fixed.
 
-## What was actually under test
+## The numbers
 
-Only congressional disclosures were in the database. With a single
-source present, the additive formula collapses algebraically:
+Horizon 20 trading days, returns relative to SPY.
 
-| term | value with one source |
+| question | answer |
 |---|---|
-| base points | `avg_confidence × 100` — the source's confidence, nothing else |
-| multi-source agreement bonus | **never applies** (requires ≥2 agreeing sources) |
-| conflict penalty | only when the same chamber both bought and sold the ticker |
-| staleness penalty | up to −15, scaling with signal age at the snapshot |
+| Do individual sources predict returns? | No. congress −0.21% (n=3,434, 50% win), Form 4 −0.34% (n=43,661, 48% win). Both slightly negative against the market. |
+| Do higher score buckets earn more? | Not usefully. Bucket means order at ρ=+0.67 across 10 buckets, but the spread is noise-scale: −0.65% to +1.92% with no clean progression. |
+| Is score correlated with forward return? | ρ=+0.020, p=0.031, n=11,348. Statistically detectable and **explains 0.04% of return variation.** |
+| Does multi-source agreement beat single-source? | **The opposite.** Multi −0.67% vs single +0.56%, a −1.23% gap at p=0.015 on 3,828 and 7,520 observations. |
+| Should the weights change? | No. UNCHANGED, not safe to act. |
+| Is any of this tradeable? | No. |
 
-And congressional confidence is `0.25 + min(midpoint/250_000, 1.0) × 0.4`,
-where `midpoint` is the disclosed dollar range. The typical disclosure is
-the $1,001–$15,000 band → midpoint $8,000 → confidence ≈ **0.263**.
+### On the score correlation
 
-So the score under test reduced to roughly:
+ρ=0.020 at n=11,348 is the most instructive number here. It is
+statistically significant and economically meaningless, and the gap
+between those two facts is where backtests go to die. A large sample
+makes tiny effects significant; significance is not size.
 
-```
-score ≈ 26 + (trade size, capped) − (staleness) − (conflict)
-```
+Worth stating precisely, because "pure noise" would be an overstatement:
+the bucket ordering at ρ=+0.67 is not random, and averaging within
+buckets is exactly what reveals a small effect hiding under large
+per-name variance. So there may be a real, tiny relationship. It is far
+too small to survive transaction costs, and this project models none.
 
-That is why 98% of 13,556 rankings scored under 30, and why buckets above
-40 hold 25 rows between them. **The experiment measured "do larger, fresher
-congressional trades outperform?" — not "does multi-source corroboration
-outperform?"**
+### On multi-source underperformance
 
-The founding assumption of the entire project — that agreement across
-independent sources beats one loud source — has **n = 0 observations**.
-Section 4 of the report reads INSUFFICIENT DATA, and that is the single
-most important line in it.
+This is the one result with an economically meaningful magnitude, and it
+contradicts the project's founding assumption. Read it carefully before
+generalising:
 
-## Findings that do stand
+Form 4 signals are dense — 43,661 filings across ~452 tickers means
+nearly every ticker carries insider activity at nearly every snapshot.
+So "multi-source" here effectively means *"congress traded it too"*, and
+the comparison is really measuring what congressional involvement adds on
+top of insider data. The answer is that it subtracts, which is consistent
+with congress being −0.21% standalone.
 
-1. **Congressional trades alone show no edge at any horizon tested.**
-   5-day: 48% win rate, −0.17%. 20-day: 50%, −0.27%. 60-day: 51%, −0.20%.
-   Three windows, all a coin flip, all slightly negative.
-2. **Score buckets trend the wrong way in the populated range**
-   (0–10: +1.34%, 10–20: +0.92%, 20–30: +0.59%, 30–40: −0.44%). Higher
-   scores earned *less*. The correlation test does not confirm this as
-   significant, so it is a thing to investigate, not a thing to act on —
-   but it is the opposite of the intended direction and should not be
-   waved away.
-3. **The guardrails worked.** The report refused to recommend a weight
-   change, flagged `safe_to_act: no`, and marked every thin bucket. It
-   would have been easy to build something that fitted noise and
-   announced a triumph.
+It is **not** a general refutation of corroboration. It is a specific
+finding about these two sources.
 
-## Caveats that could materially move these numbers
+## What went wrong in the measurement, twice
 
-- **Only 451 of 1,342 tickers had price history.** Roughly two-thirds of
-  the signal set was dropped for want of prices, after Stooq failed and
-  the Yahoo fallback covered part of the gap. Whatever is systematically
-  missing (foreign listings, OTC, small caps) is missing from the result.
-- **Congressional signals are dated by transaction, not disclosure.**
-  The STOCK Act allows up to 45 days between them. Forward windows from
-  the transaction date measure informational value — what the member
-  knew — not returns a follower could have captured. A disclosure-dated
-  run would answer the tradeable question and is a one-flag change.
-- ~~**One horizon.**~~ **Resolved 2026-08-06.** Re-run at 5 and 60 trading
-  days: Spearman +0.018 (p = 0.22, n = 4,744) and +0.004 (p = 0.81,
-  n = 4,392). Three horizons, all within ±0.02 of zero. "We looked at the
-  wrong window" is no longer an available explanation.
-- **The returns above are absolute, not benchmark-relative** — a flaw in
-  the measurement, found by reading the 60-day run. Every populated bucket
-  there earned roughly +3%, which reads as success and is approximately
-  what the market returned over the same three months. A strategy earning
-  +3% while SPY earns +4% is losing. Fixed the same day: `--benchmark SPY`
-  is now the default and the excess return is what gets reported. **Every
-  number in this document predates that fix and is absolute.**
+Both worth keeping, because both produced a confident wrong answer that
+looked exactly like a right one.
 
-## What this does and does not license
+1. **No benchmark.** Returns were absolute. Over 60 trading days of a
+   rising market every bucket earned roughly +3%, which reads as success
+   and is approximately what the index returned. Fixed by measuring
+   excess return against SPY, with the rule that an unmeasurable
+   benchmark leg yields `None` rather than a silent fall back to the
+   absolute number — which would relabel beta as alpha.
 
-- **Does not license** tuning the weights. There is no signal to tune
-  toward; changing them now is fitting noise, which produces a model that
-  scores better precisely because it has memorised randomness.
-- **Does not license** any move toward live trading. Paper included —
-  there is nothing here worth executing.
-- **Does license** lifting the "no new signals until validation" freeze.
-  The freeze existed to stop feature work from outrunning evidence. It
-  has done its job, and the evidence now says the *specific* missing
-  thing is a second source with history.
+2. **Guardrails that only checked sample size.** With two sources loaded,
+   the report announced "the ranking has directional validity", verdict
+   DECREASE, **safe to act: yes** — off ρ=0.020. Every threshold in the
+   guardrails was about *n* and none about *magnitude*, so the protection
+   got weaker exactly as the data got better. Fixed with an effect-size
+   floor and a distinct NEGLIGIBLE verdict.
 
-## Next step — built, awaiting a run
+The first one was found by reading a number that looked too good. The
+second was found by disbelieving a recommendation the tool had just made.
+Neither was caught by a test, because tests check what you thought to
+check.
 
-**SEC Form 4 backfill from the EDGAR full-index archive**
-(`scripts/backfill_form4.py`, added 2026-08-06). It is the only
-other source with deep, downloadable history (1993Q1–present, see
-`docs/DATA_LINEAGE.md`), and it is the shortest path to actually testing
-the multi-source thesis rather than a degenerate one-source shadow of it.
-Until a second source has history, section 4 of this report will keep
-reading INSUFFICIENT DATA no matter how many times it runs.
+## What this licenses
 
-Cheap things worth doing first, since each is one command:
+- **No weight tuning.** There is no signal to tune toward. Adjusting
+  weights against ρ=0.02 fits noise, and the fitted model will score
+  better precisely because it has memorised randomness.
+- **No trading, paper included.** Nothing here is worth executing.
+- **The validation freeze is over.** It did its job: it stopped feature
+  work from outrunning evidence, and the evidence arrived.
 
-```powershell
-py scripts/research_report.py --horizon 5  --output report-5d.md
-py scripts/research_report.py --horizon 60 --output report-60d.md
-```
+## Where the remaining doubt actually lives
+
+Ranked by how much they could move the answer:
+
+1. **Two-thirds of tickers had no price history** (452 of 1,342). Whatever
+   is systematically missing — foreign listings, ADRs, small caps — is
+   missing from every number above.
+2. **Congressional signals are dated by transaction, not disclosure.**
+   The STOCK Act allows 45 days between them, so these windows measure
+   what a member knew, not what a follower could have traded. A
+   disclosure-dated run answers the tradeable question and is a small
+   change.
+3. **Confidence formulas were never calibrated.** Congressional
+   confidence is `0.25 + min(midpoint/250k, 1) × 0.4` — a number chosen
+   by hand, not fitted to anything. The same is true of every weight in
+   `attribution.py`. The score was assembled from plausible-sounding
+   judgments and this is the first time any of them met an outcome.
+4. **Only two of eight sources have history.** Earnings, 13F, news,
+   technical and sentiment remain untested — though note that adding
+   sources is what *created* the multi-source result above, and it was
+   negative.
+
+## Honest bottom line
+
+Following congressional and insider disclosures, scored this way, did not
+beat buying SPY over 2024–2026. That is not a surprising result — it is
+roughly what the academic literature on both signals would predict once
+costs and publication lag are accounted for — but it is now *your*
+result, measured on your data, rather than something taken on faith.
+
+The machinery built to determine that is sound and reusable:
+point-in-time replay, benchmark-relative returns, permutation tests,
+sample-size and effect-size floors, and a report that refuses to endorse
+its own output. That is the durable asset here. The scoring model is not.
