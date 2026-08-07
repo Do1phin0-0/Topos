@@ -89,9 +89,22 @@ check.
 
 Ranked by how much they could move the answer:
 
-1. **Two-thirds of tickers had no price history** (452 of 1,342). Whatever
-   is systematically missing — foreign listings, ADRs, small caps — is
-   missing from every number above.
+1. **Two-thirds of tickers had no price history** (452 of 1,435), and
+   the 2026-08-07 diagnostic says the gap is worse than a coverage
+   problem — it is a *biased* coverage problem.
+
+   91% of the missing are ordinary US symbols, not foreign listings, and
+   36% of a retried sample came back with full history, so much of the
+   gap is a source outage rather than a fact about the market.
+
+   What did not come back is the concerning part: ANSS, BERY, AMED,
+   AZPN, ATSG, BLL — 2024-2026 acquisitions and delistings. **Acquired
+   companies are bought at a premium.** If congress or insiders were
+   buying them beforehand, those are precisely the trades that worked,
+   and they are the ones systematically absent. The missing names skew
+   toward winners, so their absence pushes every measured return in this
+   document *downward*. The null result is not safe to treat as final
+   until coverage is repaired.
 2. **Congressional signals are dated by transaction, not disclosure.**
    The STOCK Act allows 45 days between them, so these windows measure
    what a member knew, not what a follower could have traded. A

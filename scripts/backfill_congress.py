@@ -31,6 +31,7 @@ from sqlalchemy import delete
 from topos.backtesting.prices import BENCHMARK_TICKER, backfill_ticker
 from topos.collectors.house_clerk import HouseClerkCollector, HouseClerkUnavailable
 from topos.collectors.prices import PriceCollector
+from topos.db.models import PriceBar
 from topos.db.models import Signal as SignalRow
 from topos.db.session import SessionLocal, init_db
 from topos.pipeline import persist_signals
@@ -95,6 +96,14 @@ def main() -> None:
         type=float,
         default=0.4,
         help="Seconds between requests, to stay a polite client.",
+    )
+    parser.add_argument(
+        "--missing-only",
+        action="store_true",
+        help=(
+            "Fetch prices only for tickers that have none yet. Turns a "
+            "coverage repair into a fraction of a full re-run."
+        ),
     )
     parser.add_argument(
         "--date-basis",
@@ -222,6 +231,12 @@ def main() -> None:
             print("Skipping price backfill (--skip-prices).")
             print("Forward returns can't be measured until these have price history.")
             return
+
+        if args.missing_only:
+            have = {t for (t,) in session.query(PriceBar.ticker).distinct()}
+            before = len(tickers)
+            tickers = [t for t in tickers if t not in have]
+            print(f"  {before - len(tickers)} already have prices; {len(tickers)} to fetch.")
 
         targets = tickers if args.max_tickers == 0 else tickers[: args.max_tickers]
         if BENCHMARK_TICKER not in targets:
