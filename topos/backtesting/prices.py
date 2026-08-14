@@ -10,6 +10,27 @@ from topos.db.models import PriceBar
 # +4% is losing money in the only sense that matters.
 BENCHMARK_TICKER = "SPY"
 
+# Round-trip cost assumption in basis points (entry + exit, combined) for
+# a retail-sized order in a liquid name: spread plus slippage, no
+# commission (most brokers are zero-commission now). This is a flat
+# approximation, not a per-ticker model — a $500 SPY trade and a $500
+# micro-cap trade do not actually cost the same, but Topos has no
+# execution data to model the difference, and a flat number that is
+# roughly right beats a precise number this project cannot support.
+DEFAULT_COST_BPS = 10.0
+
+
+def apply_cost(directional_return: float, cost_bps: float) -> float:
+    """Subtracts a flat round-trip cost from an already direction-adjusted
+    return.
+
+    Must be called AFTER any buy/sell sign adjustment. Costs are paid
+    regardless of direction — entering and exiting a SELL costs the same
+    as entering and exiting a BUY — so subtracting before that adjustment
+    would let the sign flip turn a cost into a gain for every SELL.
+    """
+    return directional_return - cost_bps / 10_000
+
 
 def backfill_ticker(db: Session, ticker: str, collector: PriceCollector | None = None) -> int:
     """Fetches daily history for a ticker and stores any bars we don't

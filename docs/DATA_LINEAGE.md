@@ -21,6 +21,11 @@ to determine, and it has not yet run on enough real history to say.
 | `news_sentiment` | publication date of the freshest article | Yes | ticker + freshest article date |
 | `reddit_sentiment` | creation date of the newest post | Yes | ticker + newest post date |
 | `twitter_sentiment` | creation date of the newest tweet | Yes | ticker + newest tweet date |
+| `price_gap` | date of the bar with an overnight gap ≥3% | Yes, single-session | source + ticker + bar date |
+| `price_rel_volume` | date of the bar with volume ≥2x its 20-day average | Yes, single-session | source + ticker + bar date |
+| `price_momentum_20d` | date of the bar where trailing 20-day return crosses ±5% | Rolling condition, cooldown-limited | source + ticker + bar date |
+| `price_momentum_60d` | date of the bar where trailing 60-day return crosses ±10% | Rolling condition, cooldown-limited | source + ticker + bar date |
+| `price_reversal_5d` | date of the bar where trailing 5-day return crosses ±8% | Rolling condition, cooldown-limited | source + ticker + bar date |
 
 No source uses scrape time. A record that cannot be dated is dropped
 rather than stamped with today — a fabricated date silently corrupts
@@ -130,6 +135,65 @@ every forward return measured from it.
   the RSI distance past the threshold, or the relative SMA gap in the
   neutral band.
 
+## Price-action signals — gap, relative volume, momentum, reversal
+
+- **Source module**: `topos/signals/price_action.py`, built on pure
+  feature functions in `topos/analysis/price_features.py`. No collector
+  and no network call — every input is already sitting in `price_bars`.
+- **Not part of the live pipeline.** Unlike `technical`, these are
+  generated only by `scripts/backfill_price_signals.py`, which walks each
+  ticker's *entire* stored history and persists whatever fires. Re-running
+  it after new bars accumulate is the way to keep it current; nothing in
+  `topos/pipeline.py` calls it automatically.
+- **Why it exists**: congressional and Form 4 signals both validated to
+  no measurable edge (`docs/VALIDATION_RESULTS.md`), and both share a
+  trait that could explain it — they are public information arriving
+  weeks after the fact. This tests a different hypothesis, that the
+  market's own recent behaviour predicts what it does next, using data
+  Topos already has.
+- **Event date**: the date of the bar the feature crossed its firing
+  threshold on.
+- **Dedup**: `{source}:{ticker}:{event_date}` — e.g.
+  `price_momentum_20d:AAPL:2026-03-14` — matching `technical`'s
+  convention. Deterministic and DB-free, so re-running the backfill
+  against unchanged history reproduces identical keys rather than
+  stacking duplicates.
+- **Cooldown**: each of the five sources goes quiet for
+  `MIN_SIGNAL_SPACING_DAYS` (20 trading days) per ticker after firing,
+  regardless of how long the underlying condition stays true. A
+  congressional trade or Form 4 filing happens once; a momentum regime
+  persists for weeks, and sampling it daily would fire the same
+  six-week rally on dozens of consecutive, heavily-overlapping bars —
+  inflating the sample size without adding independent evidence. See the
+  module docstring for the full reasoning, which mirrors
+  `replay_rankings.py`'s `DEFAULT_STEP_DAYS` snapshot spacing.
+- **Confidence**: all five share `_scale_confidence(magnitude, floor,
+  full_at)` — 0.2 at the firing threshold, rising linearly to 0.8 at
+  `full_at`, capped at 1.0. Same "floor for firing at all, scaling toward
+  a ceiling" shape as `congress_house`, `sec_form4`, and `technical`.
+- **Direction conventions** — two of the five bet opposite ways on the
+  same kind of move:
+
+  | Source | Fires when | Direction | Convention |
+  |---|---|---|---|
+  | `price_gap` | \|open vs prior close\| ≥ 3% | with the gap | continuation |
+  | `price_rel_volume` | volume ≥ 2x its 20-day average | with that day's close-to-close return | continuation |
+  | `price_momentum_20d` | \|trailing 20-day return\| ≥ 5% | with the trend | continuation |
+  | `price_momentum_60d` | \|trailing 60-day return\| ≥ 10% | with the trend | continuation |
+  | `price_reversal_5d` | \|trailing 5-day return\| ≥ 8% | against the move | contrarian (mean-reversion) |
+
+  Gap, relative volume, and momentum are read as bullish continuation
+  signals; reversal deliberately bets the opposite way, the standard
+  short-term mean-reversion hypothesis. Whichever convention is wrong for
+  a given source shows up as a negative correlation in validation, same
+  as any other source — the point-in-time and dedup discipline is what
+  makes that number trustworthy, not which direction was guessed.
+- **Caveat**: two of the five (momentum, reversal) are deliberately the
+  most heavily studied effects in equity markets rather than something
+  novel — chosen so that a null result here is informative (a pipeline
+  bug, not evidence momentum stopped existing) rather than proving
+  nothing the way a null result on an invented feature would.
+
 ## News sentiment
 
 - **Collector**: Google News RSS search. Unofficial — Google could change
@@ -206,6 +270,7 @@ scheduled runs. This is what could be backfilled to accelerate it.
 |---|---|---|---|
 | **Congressional (House)** | [Clerk `{year}FD.zip` + PTR PDFs](https://disclosures-clerk.house.gov/) | 2008–present | Medium |
 | **Technical** | Stooq daily history | years | **Trivial** |
+| **Price-action** (gap/rel-volume/momentum/reversal) | none — computed from stored `price_bars` | same as price history (1,254 tickers as of the last backfill) | **Trivial** |
 | Form 4 | [EDGAR full-index](https://www.sec.gov/Archives/edgar/full-index/) | 1993Q1–present | Medium |
 | 8-K earnings | EDGAR full-index | 1993Q1–present | Medium |
 | 13F | EDGAR full-index | 1993Q1–present | High |

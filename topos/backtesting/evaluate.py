@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
-from topos.backtesting.prices import excess_forward_return, forward_return
+from topos.backtesting.prices import apply_cost, excess_forward_return, forward_return
 from topos.db.models import RankedOpportunity
 from topos.db.models import Signal as SignalRow
 
@@ -136,12 +136,15 @@ def evaluate_signals(
     horizons: tuple[int, ...] = DEFAULT_HORIZONS,
     group_by: str = "source",
     benchmark: str | None = None,
+    cost_bps: float = 0.0,
 ) -> list[GroupResult]:
     """Forward performance of raw signals, grouped by `source`,
     `direction`, or `confidence` bucket.
 
     Entry is each signal's `event_date` — when the thing actually
-    happened — not when it was scraped.
+    happened — not when it was scraped. `cost_bps` subtracts a flat
+    round-trip cost from every trade; 0 (the default) reports gross
+    returns, matching every caller written before the cost model existed.
     """
     signals = db.query(SignalRow).all()
 
@@ -166,7 +169,7 @@ def evaluate_signals(
             raw = _measure(db, signal.ticker, signal.event_date, horizon, benchmark)
             if raw is None:
                 continue
-            grouped[label][horizon].append(raw * multiplier)
+            grouped[label][horizon].append(apply_cost(raw * multiplier, cost_bps))
 
     return [
         GroupResult(
@@ -183,6 +186,7 @@ def evaluate_score_buckets(
     bucket_width: int = 10,
     recommendation: str | None = "BUY",
     benchmark: str | None = None,
+    cost_bps: float = 0.0,
 ) -> list[GroupResult]:
     """The headline question: does a higher combined score actually earn
     a higher return?
@@ -191,6 +195,8 @@ def evaluate_score_buckets(
     made the call — so this grades the recommendation as it was actually
     issued. Defaults to BUY recommendations because that's what the
     portfolio engine acts on; pass None to include every ranking.
+    `cost_bps` subtracts a flat round-trip cost from every trade; 0 (the
+    default) reports gross returns.
     """
     query = db.query(RankedOpportunity)
     if recommendation:
@@ -211,7 +217,7 @@ def evaluate_score_buckets(
             )
             if raw is None:
                 continue
-            grouped[label][horizon].append(raw * multiplier)
+            grouped[label][horizon].append(apply_cost(raw * multiplier, cost_bps))
 
     return [
         GroupResult(

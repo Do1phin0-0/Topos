@@ -22,7 +22,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from sqlalchemy import String, cast, or_
 
 from topos.backtesting.evaluate import evaluate_score_buckets, evaluate_signals
-from topos.backtesting.prices import BENCHMARK_TICKER, has_benchmark_history
+from topos.backtesting.prices import (
+    BENCHMARK_TICKER,
+    DEFAULT_COST_BPS,
+    has_benchmark_history,
+)
 from topos.backtesting.research import (
     MIN_SAMPLE_FOR_CONFIDENCE,
     MIN_SAMPLE_FOR_INFERENCE,
@@ -93,7 +97,9 @@ def formula_mix_warning(legacy: int, current: int) -> str | None:
     return None
 
 
-def build_report(session, horizon: int, benchmark: str | None = None) -> str:
+def build_report(
+    session, horizon: int, benchmark: str | None = None, cost_bps: float = 0.0
+) -> str:
     out: list[str] = []
     w = out.append
 
@@ -109,9 +115,19 @@ def build_report(session, horizon: int, benchmark: str | None = None) -> str:
     measure = (
         f"returns measured against {benchmark}" if benchmark else "absolute returns"
     )
+    cost_measure = f"net of {cost_bps:.0f}bps round-trip cost" if cost_bps else "gross"
     w(f"Generated {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC · "
-      f"holding period {horizon} trading days · {measure}")
+      f"holding period {horizon} trading days · {measure} · {cost_measure}")
     w("")
+    if cost_bps:
+        w(f"> **Flat cost assumption.** Every return below has {cost_bps:.0f} basis "
+          "points subtracted per trade — an approximation of spread and slippage "
+          "on a retail-sized order in a liquid name, not a per-ticker or "
+          "per-broker model. It does not account for turnover, market impact on "
+          "illiquid names, or the wider gap on a name that gaps hard on the very "
+          "open a signal fires on. Pass `--gross` to see returns before this "
+          "adjustment.")
+        w("")
     w("## 0. Data inventory")
     w("")
     w(_table(
@@ -159,7 +175,7 @@ def build_report(session, horizon: int, benchmark: str | None = None) -> str:
     w("## 1. Performance by signal source")
     w("")
     source_stats = evaluate_signals(
-        session, horizons=(horizon,), group_by="source", benchmark=benchmark
+        session, horizons=(horizon,), group_by="source", benchmark=benchmark, cost_bps=cost_bps
     )
     if not source_stats:
         w("No source has a measurable forward window yet.")
@@ -186,7 +202,7 @@ def build_report(session, horizon: int, benchmark: str | None = None) -> str:
     w("## 2. Performance by score bucket")
     w("")
     buckets = evaluate_score_buckets(
-        session, horizons=(horizon,), recommendation=None, benchmark=benchmark
+        session, horizons=(horizon,), recommendation=None, benchmark=benchmark, cost_bps=cost_bps
     )
     if not buckets:
         w("No scored opportunity has a closed forward window yet.")
@@ -238,7 +254,7 @@ def build_report(session, horizon: int, benchmark: str | None = None) -> str:
     w("## 3. Correlation between score and forward return")
     w("")
     correlation = score_return_correlation(
-        session, horizon_days=horizon, benchmark=benchmark
+        session, horizon_days=horizon, benchmark=benchmark, cost_bps=cost_bps
     )
     w(_table(
         [
@@ -261,7 +277,7 @@ def build_report(session, horizon: int, benchmark: str | None = None) -> str:
     w("## 4. Multi-source agreement vs single-source")
     w("")
     cohorts = multi_vs_single_source(
-        session, horizon_days=horizon, benchmark=benchmark
+        session, horizon_days=horizon, benchmark=benchmark, cost_bps=cost_bps
     )
     rows = [
         [c.label, str(c.n), "—" if c.win_rate is None else f"{c.win_rate:.0%}", _pct(c.mean_return)]
@@ -329,13 +345,30 @@ def main() -> None:
         action="store_true",
         help="Report raw returns instead, market drift and all.",
     )
+    parser.add_argument(
+        "--cost-bps",
+        type=float,
+        default=DEFAULT_COST_BPS,
+        help=(
+            f"Flat round-trip cost in basis points, subtracted from every "
+            f"trade (default {DEFAULT_COST_BPS:.0f})."
+        ),
+    )
+    parser.add_argument(
+        "--gross",
+        action="store_true",
+        help="Report returns before the cost assumption instead.",
+    )
     args = parser.parse_args()
 
     init_db()
     session = SessionLocal()
     try:
         report = build_report(
-            session, args.horizon, benchmark=None if args.absolute else args.benchmark
+            session,
+            args.horizon,
+            benchmark=None if args.absolute else args.benchmark,
+            cost_bps=0.0 if args.gross else args.cost_bps,
         )
     finally:
         session.close()

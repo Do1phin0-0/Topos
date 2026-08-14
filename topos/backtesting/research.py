@@ -23,7 +23,7 @@ from datetime import date
 from sqlalchemy.orm import Session
 
 from topos.backtesting.evaluate import _measure
-from topos.backtesting.prices import forward_return
+from topos.backtesting.prices import apply_cost, forward_return
 from topos.db.models import RankedOpportunity
 from topos.db.models import Signal as SignalRow
 
@@ -40,8 +40,11 @@ MIN_SAMPLE_FOR_CONFIDENCE = 100
 #
 # 0.05 is deliberately a low bar rather than a safe one. Quant equity
 # desks do trade information coefficients in this range, but only with
-# transaction costs, turnover and breadth modelled, none of which Topos
-# does. Clearing it means "worth investigating", never "worth trading".
+# turnover and breadth modelled, neither of which Topos does — the
+# `cost_bps` param on the functions below only ever subtracts a single
+# flat round-trip cost per trade, not the compounding effect of turnover
+# or portfolio construction. Clearing it means "worth investigating",
+# never "worth trading".
 MIN_ACTIONABLE_CORRELATION = 0.05
 
 PERMUTATIONS = 10_000
@@ -212,12 +215,15 @@ def score_return_correlation(
     horizon_days: int = 20,
     recommendation: str | None = None,
     benchmark: str | None = None,
+    cost_bps: float = 0.0,
 ) -> CorrelationResult:
     """Task 4: is score related to what happened next?
 
     Uses every ranking with a measurable forward window, not just BUYs by
     default — restricting to BUYs would only measure the top of the range
-    and can't show whether the score discriminates across it.
+    and can't show whether the score discriminates across it. `cost_bps`
+    subtracts a flat round-trip cost from every trade; 0 (the default)
+    reports gross returns.
     """
     query = db.query(RankedOpportunity)
     if recommendation:
@@ -235,8 +241,11 @@ def score_return_correlation(
             continue
         # A SELL is graded on the downside it predicted, so its realized
         # return is negated to put every call on a "did it work" axis.
+        # Cost is applied after that negation — it must never be, or a
+        # SELL's cost would flip sign into a gain.
         if opportunity.recommendation == "SELL":
             realized = -realized
+        realized = apply_cost(realized, cost_bps)
         scores.append(opportunity.score)
         returns.append(realized)
 
@@ -251,13 +260,15 @@ def score_return_correlation(
 
 
 def multi_vs_single_source(
-    db: Session, horizon_days: int = 20, benchmark: str | None = None
+    db: Session, horizon_days: int = 20, benchmark: str | None = None, cost_bps: float = 0.0
 ) -> CohortComparison:
     """Task 5: does corroboration across sources actually help?
 
     This is the empirical test of the project's founding assumption —
     that agreement between independent sources is worth more than one
-    loud source. It has never been checked.
+    loud source. It has never been checked. `cost_bps` subtracts a flat
+    round-trip cost from every trade; 0 (the default) reports gross
+    returns.
     """
     single: list[float] = []
     multi: list[float] = []
@@ -272,6 +283,7 @@ def multi_vs_single_source(
             continue
         if opportunity.recommendation == "SELL":
             realized = -realized
+        realized = apply_cost(realized, cost_bps)
         source_count = len(opportunity.sources or [])
         (multi if source_count >= 2 else single).append(realized)
 
@@ -343,9 +355,9 @@ def weight_recommendation(
             f"n={correlation.n}) — statistically detectable, but explaining "
             f"{correlation.variance_explained:.2%} of return variation. A "
             f"sample this large makes tiny effects significant; significance "
-            f"is not size. Below |rho|={MIN_ACTIONABLE_CORRELATION}, and with no "
-            "transaction-cost or turnover model in this project, there is "
-            "nothing here worth retuning weights against."
+            f"is not size. Below |rho|={MIN_ACTIONABLE_CORRELATION}, and even "
+            "before a flat per-trade cost is subtracted, there is nothing "
+            "here worth retuning weights against."
         )
         return recommendation
 
