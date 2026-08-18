@@ -7,11 +7,18 @@ from topos.signals.base import Signal
 
 class RankingEngine:
     """Aggregates raw signals per ticker. Agreement across independent
-    sources is weighted more heavily than one loud source."""
+    sources is weighted more heavily than one loud source.
+
+    Only "buy"-direction signals are considered: the portfolio/execution
+    layers are long-only, so a ticker insiders/congress/funds are net
+    *selling* must not still rank and get bought just because the trade
+    was large (confidence measures conviction strength, not direction)."""
 
     def rank(self, signals: list[Signal]) -> list[RankedOpportunity]:
         by_ticker: dict[str, list[Signal]] = defaultdict(list)
         for signal in signals:
+            if signal.direction != "buy":
+                continue
             by_ticker[signal.ticker].append(signal)
 
         ranked = []

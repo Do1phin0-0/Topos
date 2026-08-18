@@ -29,7 +29,7 @@ and `evidence` payload (`topos/signals/base.py`).
 | --- | --- |
 | SEC Form 4 (insider buy/sell) | **Live** — `topos/signals/form4.py` |
 | Congressional trade disclosures | **Live** — `topos/signals/congress.py`, via House/Senate Stock Watcher (see caveat below) |
-| SEC 13F-HR (hedge fund holdings) | Collector wired, extraction is a follow-up (needs prior-quarter diffing to be meaningful) |
+| SEC 13F-HR (hedge fund holdings) | **Live** — `topos/signals/filing_13f.py`, diffs each filer's latest holdings against the prior quarter (see caveat below) |
 | Earnings reports | Not started |
 | News sentiment | Not started — needs a provider (NewsAPI, Finnhub, etc.) |
 | Technical indicators | Not started |
@@ -43,6 +43,15 @@ only publish PDFs. Topos pulls from [House Stock Watcher](https://housestockwatc
 and [Senate Stock Watcher](https://senatestockwatcher.com), open-source
 projects that parse those official PDFs into public JSON. That means Topos's
 congressional signal is only as fresh/accurate as those mirrors.
+
+**13F-HR caveat:** 13F infotables identify holdings by CUSIP, not ticker,
+so each newly-touched CUSIP is resolved via
+[OpenFIGI's](https://www.openfigi.com/api) free public mapping API
+(`topos/collectors/cusip_resolver.py`), cached permanently in the DB.
+Resolution failures are dropped rather than surfaced with a guessed
+symbol — expect a fraction of holdings (illiquid names, non-US filers,
+class-of-share quirks) to never produce a signal. Filers only submit these
+quarterly, so most hourly runs will correctly find nothing new here.
 
 ## Phase 1 MVP — done
 
@@ -64,7 +73,35 @@ congressional signal is only as fresh/accurate as those mirrors.
 
 Portfolio sizing and risk checks are intentionally simple for this phase:
 equal-weight top-N tickers above a score floor, capped at a max position
-weight and max open positions (`topos/portfolio/`, `topos/risk/`).
+weight and max open positions (`topos/portfolio/`, `topos/risk/`). Getting
+from those target weights to the account's *current* Alpaca positions is
+handled by `topos/portfolio/rebalancer.py`: each run diffs targets against
+what's actually held and only trades the delta (buy up, trim down, sell
+positions that drop out of the target list) — the pipeline does **not**
+resubmit a full-weight buy for a ticker that's already at target on every
+hourly run.
+
+## Reliability notes
+
+- **Signal dedup:** raw signals are deduped on insert by `(source,
+  external_id)` (`topos/pipeline.py::_persist_signals`), where
+  `external_id` is the filing URL for Form 4 and the PTR link (+
+  ticker/date/type) for congressional trades. Re-collecting the same
+  filing on the next hourly run doesn't create a duplicate row. A
+  best-effort, idempotent migration (`topos/db/session.py`) adds this
+  column to any pre-existing deployed database automatically on startup.
+- **Real position sizing:** when running with `--execute`, order sizing
+  uses the account's actual equity and holdings from Alpaca
+  (`AlpacaExecutionClient.get_account/get_positions_by_ticker`), not a
+  hardcoded assumed balance. If Alpaca is unreachable, that run skips
+  trading entirely rather than sizing orders against a stale guess.
+- **HTTP retries:** collectors (SEC EDGAR, House/Senate Stock Watcher) use
+  a shared retrying `requests.Session` (`topos/http.py`) with backoff on
+  429/5xx and connection errors, since they run unattended on an hourly
+  cron. Order placement to Alpaca is deliberately *not* retried
+  automatically — a retried POST could double-submit a live order.
+- **CI:** `.github/workflows/ci.yml` runs the test suite on every push/PR
+  so regressions are caught before a Render deploy, not after.
 
 Everything else in the architecture diagram (13F, earnings, news/social
 sentiment, options flow, analyst revisions) is documented intent for Phase
@@ -98,10 +135,15 @@ accordingly.
 - `topos-db` — the Postgres instance.
 - `topos-dashboard` — a web service running the Streamlit dashboard
   (Dockerfile-based, binds to Render's `$PORT`).
-- `topos-pipeline` — a cron job running `python scripts/run_pipeline.py`
-  hourly (UTC — adjust the schedule for your needs; it defaults to dry run,
-  so it won't place real trades until you also set `--execute` and Alpaca
-  keys in the dashboard).
+- `topos-pipeline` — a cron job running `python scripts/run_pipeline.py
+  --execute` hourly (UTC — adjust the schedule for your needs). It places
+  real orders against `ALPACA_BASE_URL`, which defaults to
+  `paper-api.alpaca.markets` — **paper trading only** until you
+  deliberately point that at live and supply live keys. Until
+  `ALPACA_API_KEY`/`ALPACA_SECRET_KEY` are set, the pipeline detects
+  Alpaca is unreachable and skips trading for that run (signals still
+  collect and rank normally) — set those two secrets in the Render
+  dashboard whenever you're ready for it to actually start paper trading.
 
 To deploy: push this repo to GitHub, then in the Render dashboard choose
 "New > Blueprint" and point it at the repo. Fill in `SEC_EDGAR_USER_AGENT`

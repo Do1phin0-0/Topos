@@ -4,7 +4,7 @@ from typing import Any
 import requests
 
 from topos.config import load_settings
-from topos.portfolio.decision import TargetPosition
+from topos.http import build_session
 
 
 @dataclass
@@ -28,28 +28,31 @@ class AlpacaExecutionClient:
             "APCA-API-KEY-ID": settings.alpaca_api_key,
             "APCA-API-SECRET-KEY": settings.alpaca_secret_key,
         }
+        # GET-only retry session: order placement below uses a bare
+        # single-attempt POST so a retried request can never double-submit.
+        self._session = build_session()
 
     def _get(self, path: str) -> Any:
-        response = requests.get(f"{self._base_url}{path}", headers=self._headers, timeout=15)
+        response = self._session.get(f"{self._base_url}{path}", headers=self._headers, timeout=15)
         response.raise_for_status()
         return response.json()
 
     def place_order(
-        self, target: TargetPosition, notional_usd: float, dry_run: bool = True
+        self, ticker: str, notional_usd: float, side: str, dry_run: bool = True
     ) -> OrderResult:
         if dry_run:
             return OrderResult(
-                ticker=target.ticker,
+                ticker=ticker,
                 status="dry_run",
-                detail=f"would buy ~${notional_usd:.2f} of {target.ticker} (weight {target.weight})",
+                detail=f"would {side} ~${notional_usd:.2f} of {ticker}",
             )
         response = requests.post(
             f"{self._base_url}/v2/orders",
             headers=self._headers,
             json={
-                "symbol": target.ticker,
+                "symbol": ticker,
                 "notional": round(notional_usd, 2),
-                "side": "buy",
+                "side": side,
                 "type": "market",
                 "time_in_force": "day",
             },
@@ -58,9 +61,9 @@ class AlpacaExecutionClient:
         response.raise_for_status()
         body = response.json()
         return OrderResult(
-            ticker=target.ticker,
+            ticker=ticker,
             status="submitted",
-            detail=f"submitted market order for ${notional_usd:.2f}",
+            detail=f"submitted {side} market order for ${notional_usd:.2f} of {ticker}",
             order_id=body.get("id"),
         )
 
@@ -69,3 +72,8 @@ class AlpacaExecutionClient:
 
     def get_positions(self) -> list[dict[str, Any]]:
         return self._get("/v2/positions")
+
+    def get_positions_by_ticker(self) -> dict[str, float]:
+        """Current market value per held ticker, used by the rebalancer to
+        diff target weights against what's actually in the account."""
+        return {p["symbol"]: float(p["market_value"]) for p in self.get_positions()}

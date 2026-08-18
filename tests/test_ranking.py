@@ -6,9 +6,9 @@ from topos.signals.base import Signal
 
 def test_rank_favors_multi_source_agreement():
     signals = [
-        Signal(timestamp=datetime.now(timezone.utc), source="sec_form4", ticker="AAA", confidence=0.6),
-        Signal(timestamp=datetime.now(timezone.utc), source="sec_form4", ticker="BBB", confidence=0.6),
-        Signal(timestamp=datetime.now(timezone.utc), source="news", ticker="BBB", confidence=0.6),
+        Signal(timestamp=datetime.now(timezone.utc), source="sec_form4", ticker="AAA", confidence=0.6, direction="buy"),
+        Signal(timestamp=datetime.now(timezone.utc), source="sec_form4", ticker="BBB", confidence=0.6, direction="buy"),
+        Signal(timestamp=datetime.now(timezone.utc), source="news", ticker="BBB", confidence=0.6, direction="buy"),
     ]
 
     ranked = RankingEngine().rank(signals)
@@ -16,6 +16,19 @@ def test_rank_favors_multi_source_agreement():
     assert ranked[0].ticker == "BBB"
     assert ranked[0].signal_count == 2
     assert ranked[1].ticker == "AAA"
+
+
+def test_rank_excludes_sell_direction_signals():
+    """A large sell signal must not rank a ticker for the long-only
+    portfolio just because the trade was big (high confidence)."""
+    signals = [
+        Signal(timestamp=datetime.now(timezone.utc), source="sec_form4", ticker="AAA", confidence=0.9, direction="sell"),
+        Signal(timestamp=datetime.now(timezone.utc), source="sec_form4", ticker="BBB", confidence=0.5, direction="buy"),
+    ]
+
+    ranked = RankingEngine().rank(signals)
+
+    assert [r.ticker for r in ranked] == ["BBB"]
 
 
 def test_portfolio_and_risk_pipeline():

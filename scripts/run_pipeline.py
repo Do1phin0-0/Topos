@@ -1,4 +1,5 @@
 import argparse
+import logging
 import sys
 from pathlib import Path
 
@@ -8,6 +9,10 @@ from topos.pipeline import run
 
 
 def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     parser = argparse.ArgumentParser(description="Run the Topos signal pipeline.")
     parser.add_argument(
         "--execute",

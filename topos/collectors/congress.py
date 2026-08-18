@@ -1,6 +1,6 @@
 from typing import Any
 
-import requests
+from topos.http import build_session
 
 HOUSE_URL = "https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/all_transactions.json"
 SENATE_URL = "https://senate-stock-watcher-data.s3-us-west-2.amazonaws.com/aggregate/all_transactions.json"
@@ -13,8 +13,11 @@ class CongressTradeCollector:
     two open-source projects parse those official disclosures into public
     JSON and are the de facto free source everyone in this space uses."""
 
+    def __init__(self) -> None:
+        self._session = build_session()
+
     def _get_json(self, url: str) -> list[dict[str, Any]]:
-        response = requests.get(url, timeout=30)
+        response = self._session.get(url, timeout=30)
         response.raise_for_status()
         return response.json()
 
