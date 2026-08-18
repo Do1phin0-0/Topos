@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, Column, DateTime, Float, Integer, String
+from sqlalchemy import JSON, Column, DateTime, Float, Index, Integer, String
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -15,7 +15,15 @@ class Signal(Base):
     ticker = Column(String, nullable=False, index=True)
     confidence = Column(Float, nullable=False)
     evidence = Column(JSON, nullable=False)
+    # Stable per-source id (filing URL, PTR link, ...) used to dedupe
+    # re-collected records across pipeline runs. Nullable for sources that
+    # can't produce one.
+    external_id = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("uq_signals_source_external_id", "source", "external_id", unique=True),
+    )
 
 
 class RankedOpportunity(Base):

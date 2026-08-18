@@ -1,3 +1,4 @@
+import hashlib
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -7,6 +8,26 @@ from topos.signals.base import Signal
 
 _AMOUNT_RE = re.compile(r"[\d,]+")
 _NON_TICKERS = {"", "N/A", "--", "NONE"}
+
+
+def _external_id(record: dict[str, Any], ticker: str) -> str:
+    """Stable id for a disclosed transaction. Prefer the PTR link (unique
+    per disclosure) combined with the specific ticker/date/type, since one
+    PTR can list several transactions; fall back to a content hash for
+    records without a link."""
+    ptr_link = record.get("ptr_link")
+    parts = [
+        ptr_link or "",
+        ticker,
+        str(record.get("transaction_date")),
+        str(record.get("type")),
+        str(record.get("amount")),
+        str(record.get("representative") or record.get("senator") or ""),
+        str(record.get("chamber")),
+    ]
+    if ptr_link:
+        return "|".join(parts)
+    return hashlib.sha256("|".join(parts).encode()).hexdigest()
 
 
 def _amount_midpoint(amount_str: str | None) -> float:
@@ -57,6 +78,7 @@ def extract_congress_signal(record: dict[str, Any]) -> Signal | None:
         source=f"congress_{record.get('chamber', 'unknown')}",
         ticker=ticker,
         confidence=round(confidence, 3),
+        external_id=_external_id(record, ticker),
         evidence={
             "member": owner,
             "chamber": record.get("chamber"),

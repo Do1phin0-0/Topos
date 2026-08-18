@@ -4,6 +4,7 @@ from typing import Any
 import requests
 
 from topos.config import load_settings
+from topos.http import build_session
 
 ATOM_NS = "{http://www.w3.org/2005/Atom}"
 BASE_URL = "https://www.sec.gov"
@@ -17,9 +18,10 @@ class SECEdgarCollector:
     def __init__(self) -> None:
         settings = load_settings()
         self._headers = {"User-Agent": settings.sec_user_agent}
+        self._session = build_session()
 
     def _get(self, url: str, **kwargs: Any) -> requests.Response:
-        response = requests.get(url, headers=self._headers, timeout=15, **kwargs)
+        response = self._session.get(url, headers=self._headers, timeout=15, **kwargs)
         response.raise_for_status()
         return response
 

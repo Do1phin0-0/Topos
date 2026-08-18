@@ -64,7 +64,35 @@ congressional signal is only as fresh/accurate as those mirrors.
 
 Portfolio sizing and risk checks are intentionally simple for this phase:
 equal-weight top-N tickers above a score floor, capped at a max position
-weight and max open positions (`topos/portfolio/`, `topos/risk/`).
+weight and max open positions (`topos/portfolio/`, `topos/risk/`). Getting
+from those target weights to the account's *current* Alpaca positions is
+handled by `topos/portfolio/rebalancer.py`: each run diffs targets against
+what's actually held and only trades the delta (buy up, trim down, sell
+positions that drop out of the target list) — the pipeline does **not**
+resubmit a full-weight buy for a ticker that's already at target on every
+hourly run.
+
+## Reliability notes
+
+- **Signal dedup:** raw signals are deduped on insert by `(source,
+  external_id)` (`topos/pipeline.py::_persist_signals`), where
+  `external_id` is the filing URL for Form 4 and the PTR link (+
+  ticker/date/type) for congressional trades. Re-collecting the same
+  filing on the next hourly run doesn't create a duplicate row. A
+  best-effort, idempotent migration (`topos/db/session.py`) adds this
+  column to any pre-existing deployed database automatically on startup.
+- **Real position sizing:** when running with `--execute`, order sizing
+  uses the account's actual equity and holdings from Alpaca
+  (`AlpacaExecutionClient.get_account/get_positions_by_ticker`), not a
+  hardcoded assumed balance. If Alpaca is unreachable, that run skips
+  trading entirely rather than sizing orders against a stale guess.
+- **HTTP retries:** collectors (SEC EDGAR, House/Senate Stock Watcher) use
+  a shared retrying `requests.Session` (`topos/http.py`) with backoff on
+  429/5xx and connection errors, since they run unattended on an hourly
+  cron. Order placement to Alpaca is deliberately *not* retried
+  automatically — a retried POST could double-submit a live order.
+- **CI:** `.github/workflows/ci.yml` runs the test suite on every push/PR
+  so regressions are caught before a Render deploy, not after.
 
 Everything else in the architecture diagram (13F, earnings, news/social
 sentiment, options flow, analyst revisions) is documented intent for Phase
