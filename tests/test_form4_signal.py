@@ -52,6 +52,7 @@ def test_extract_form4_signal_officer_buy():
     assert signal.ticker == "ACME"
     assert signal.source == "sec_form4"
     assert signal.external_id == _FILING_URL
+    assert signal.direction == "buy"
     assert signal.evidence["direction"] == "buy"
     assert signal.evidence["is_officer"] is True
     assert signal.evidence["total_value_usd"] == 50_000.0

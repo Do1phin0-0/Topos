@@ -79,6 +79,7 @@ def extract_congress_signal(record: dict[str, Any]) -> Signal | None:
         ticker=ticker,
         confidence=round(confidence, 3),
         external_id=_external_id(record, ticker),
+        direction=direction,
         evidence={
             "member": owner,
             "chamber": record.get("chamber"),

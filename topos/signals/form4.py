@@ -47,6 +47,7 @@ def extract_form4_signal(xml_root: ET.Element, filing_url: str) -> Signal | None
         ticker=ticker.upper(),
         confidence=round(confidence, 3),
         external_id=filing_url,
+        direction=direction,
         evidence={
             "filing_url": filing_url,
             "owner": owner_name,
