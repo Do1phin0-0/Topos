@@ -29,7 +29,7 @@ and `evidence` payload (`topos/signals/base.py`).
 | --- | --- |
 | SEC Form 4 (insider buy/sell) | **Live** — `topos/signals/form4.py` |
 | Congressional trade disclosures | **Live** — `topos/signals/congress.py`, via House/Senate Stock Watcher (see caveat below) |
-| SEC 13F-HR (hedge fund holdings) | Collector wired, extraction is a follow-up (needs prior-quarter diffing to be meaningful) |
+| SEC 13F-HR (hedge fund holdings) | **Live** — `topos/signals/filing_13f.py`, diffs each filer's latest holdings against the prior quarter (see caveat below) |
 | Earnings reports | Not started |
 | News sentiment | Not started — needs a provider (NewsAPI, Finnhub, etc.) |
 | Technical indicators | Not started |
@@ -43,6 +43,15 @@ only publish PDFs. Topos pulls from [House Stock Watcher](https://housestockwatc
 and [Senate Stock Watcher](https://senatestockwatcher.com), open-source
 projects that parse those official PDFs into public JSON. That means Topos's
 congressional signal is only as fresh/accurate as those mirrors.
+
+**13F-HR caveat:** 13F infotables identify holdings by CUSIP, not ticker,
+so each newly-touched CUSIP is resolved via
+[OpenFIGI's](https://www.openfigi.com/api) free public mapping API
+(`topos/collectors/cusip_resolver.py`), cached permanently in the DB.
+Resolution failures are dropped rather than surfaced with a guessed
+symbol — expect a fraction of holdings (illiquid names, non-US filers,
+class-of-share quirks) to never produce a signal. Filers only submit these
+quarterly, so most hourly runs will correctly find nothing new here.
 
 ## Phase 1 MVP — done
 

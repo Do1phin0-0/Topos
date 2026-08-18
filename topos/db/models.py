@@ -49,3 +49,38 @@ class Trade(Base):
     broker_order_id = Column(String, nullable=True)
     detail = Column(String, nullable=True)
     submitted_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Filing13FPosition(Base):
+    """Latest known holding snapshot per (filer CIK, CUSIP). 13F-HR filings
+    only change quarterly, so each pipeline run diffs the newly parsed
+    filing against this table to find new/closed/materially-changed
+    positions, then updates it in place — this table is a cursor, not a
+    history log."""
+
+    __tablename__ = "filing_13f_positions"
+
+    id = Column(Integer, primary_key=True)
+    cik = Column(String, nullable=False, index=True)
+    filer_name = Column(String, nullable=False)
+    cusip = Column(String, nullable=False, index=True)
+    name_of_issuer = Column(String, nullable=True)
+    filed_at = Column(String, nullable=False)
+    shares = Column(Float, nullable=False)
+    value_usd = Column(Float, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("uq_13f_position_cik_cusip", "cik", "cusip", unique=True),
+    )
+
+
+class CusipTickerCache(Base):
+    """Permanent cache of CUSIP -> ticker resolutions. A CUSIP that fails
+    to resolve is cached too (ticker=None) so it isn't re-queried forever."""
+
+    __tablename__ = "cusip_ticker_cache"
+
+    cusip = Column(String, primary_key=True)
+    ticker = Column(String, nullable=True)
+    resolved_at = Column(DateTime, default=datetime.utcnow)
