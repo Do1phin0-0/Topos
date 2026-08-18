@@ -29,7 +29,7 @@ and `evidence` payload (`topos/signals/base.py`).
 | --- | --- |
 | SEC Form 4 (insider buy/sell) | **Live** — `topos/signals/form4.py` |
 | Congressional trade disclosures | **Live** — `topos/signals/congress.py`, via House/Senate Stock Watcher (see caveat below) |
-| SEC 13F-HR (hedge fund holdings) | Collector wired, extraction is a follow-up (needs prior-quarter diffing to be meaningful) |
+| SEC 13F-HR (hedge fund holdings) | **Live** — `topos/signals/filing_13f.py` (see caveat below) |
 | Earnings reports | Not started |
 | News sentiment | Not started — needs a provider (NewsAPI, Finnhub, etc.) |
 | Technical indicators | Not started |
@@ -44,15 +44,29 @@ and [Senate Stock Watcher](https://senatestockwatcher.com), open-source
 projects that parse those official PDFs into public JSON. That means Topos's
 congressional signal is only as fresh/accurate as those mirrors.
 
+**13F data caveat:** 13F-HR filings report holdings by CUSIP and issuer
+name, never a ticker, and CUSIP-to-ticker mapping is a licensed CUSIP
+Global Services product with no free official lookup. Topos resolves
+tickers with a best-effort fuzzy match against SEC's own
+`company_tickers.json` by normalized issuer name; holdings that don't
+match a known ticker are silently skipped rather than guessed at, so
+some real position changes won't surface as signals. A fund's first
+filing seen by Topos has no prior quarter to diff against, so it's
+stored as a baseline with no signal — the diff (and thus the signal)
+only appears starting with that fund's second filing.
+
 ## Phase 1 MVP — done
 
 - Form 4 filings pulled live from SEC EDGAR (no API key required).
 - Congressional trade disclosures pulled live (see caveat above).
+- 13F-HR fund holdings pulled live and diffed against each filer's prior
+  quarter, stored in `filing_13f_holdings` (see caveat above).
 - All raw signals, ranked opportunities, and trade attempts stored in
   PostgreSQL (`topos/db/models.py`).
 - Signal scoring: confidence heuristics per source (insider role + trade
-  size for Form 4; trade size for congressional trades), aggregated per
-  ticker with a multi-source-agreement bonus (`topos/ranking/ranker.py`).
+  size for Form 4; trade size for congressional trades; position-change
+  size + type for 13F), aggregated per ticker with a multi-source-agreement
+  bonus (`topos/ranking/ranker.py`).
 - Opportunities, raw signals, and trade history displayed in Streamlit
   (`dashboard/app.py`).
 - Paper trades executed via Alpaca — defaults to **dry run**, only submits
@@ -66,7 +80,7 @@ Portfolio sizing and risk checks are intentionally simple for this phase:
 equal-weight top-N tickers above a score floor, capped at a max position
 weight and max open positions (`topos/portfolio/`, `topos/risk/`).
 
-Everything else in the architecture diagram (13F, earnings, news/social
+Everything else in the architecture diagram (earnings, news/social
 sentiment, options flow, analyst revisions) is documented intent for Phase
 2, not implemented yet.
 

@@ -60,3 +60,11 @@ class SECEdgarCollector:
 
     def fetch_xml(self, url: str) -> ET.Element:
         return ET.fromstring(self._get(url).content)
+
+    def company_tickers(self) -> list[dict[str, Any]]:
+        """Raw {cik_str, ticker, title} records from SEC's free
+        company_tickers.json. 13F filings identify issuers by CUSIP + name,
+        never a ticker, so this is used as a best-effort name-based
+        fallback for resolving 13F holdings to tickers."""
+        data = self._get(f"{BASE_URL}/files/company_tickers.json").json()
+        return list(data.values())

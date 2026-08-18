@@ -7,6 +7,7 @@ from topos.ranking.ranker import RankingEngine
 from topos.risk.checks import RiskManager
 from topos.signals.base import Signal
 from topos.signals.congress import CongressSignalExtractor
+from topos.signals.filing_13f import Filing13FSignalExtractor
 from topos.signals.form4 import Form4SignalExtractor
 
 
@@ -17,6 +18,7 @@ def _collect_signals(limit: int) -> list[Signal]:
     for name, extractor_cls in [
         ("sec_form4", Form4SignalExtractor),
         ("congress", CongressSignalExtractor),
+        ("sec_13f", Filing13FSignalExtractor),
     ]:
         try:
             signals.extend(extractor_cls().extract(limit=limit))
