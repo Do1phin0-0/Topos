@@ -34,7 +34,14 @@ services:
     name: topos-pipeline
     runtime: docker
     dockerfilePath: ./Dockerfile
-    dockerCommand: python scripts/run_pipeline.py
+    # --execute submits real orders against ALPACA_BASE_URL below, which is
+    # paper-api.alpaca.markets — paper trading only, never live money,
+    # unless that URL and the Alpaca keys are deliberately changed. If
+    # ALPACA_API_KEY/ALPACA_SECRET_KEY aren't set, the pipeline detects
+    # that Alpaca is unreachable and skips trading for that run rather
+    # than erroring, so this is safe to leave on even before keys are
+    # filled in below.
+    dockerCommand: python scripts/run_pipeline.py --execute
     # Every hour, UTC. Cron schedules on Render always run in UTC — adjust
     # for market hours / your timezone as needed.
     schedule: "0 * * * *"

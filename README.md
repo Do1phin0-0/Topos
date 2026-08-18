@@ -135,10 +135,15 @@ accordingly.
 - `topos-db` — the Postgres instance.
 - `topos-dashboard` — a web service running the Streamlit dashboard
   (Dockerfile-based, binds to Render's `$PORT`).
-- `topos-pipeline` — a cron job running `python scripts/run_pipeline.py`
-  hourly (UTC — adjust the schedule for your needs; it defaults to dry run,
-  so it won't place real trades until you also set `--execute` and Alpaca
-  keys in the dashboard).
+- `topos-pipeline` — a cron job running `python scripts/run_pipeline.py
+  --execute` hourly (UTC — adjust the schedule for your needs). It places
+  real orders against `ALPACA_BASE_URL`, which defaults to
+  `paper-api.alpaca.markets` — **paper trading only** until you
+  deliberately point that at live and supply live keys. Until
+  `ALPACA_API_KEY`/`ALPACA_SECRET_KEY` are set, the pipeline detects
+  Alpaca is unreachable and skips trading for that run (signals still
+  collect and rank normally) — set those two secrets in the Render
+  dashboard whenever you're ready for it to actually start paper trading.
 
 To deploy: push this repo to GitHub, then in the Render dashboard choose
 "New > Blueprint" and point it at the repo. Fill in `SEC_EDGAR_USER_AGENT`
