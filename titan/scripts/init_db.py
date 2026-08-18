@@ -1,0 +1,10 @@
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
+from titan.app.db.session import init_db
+
+if __name__ == "__main__":
+    init_db()
+    print("Titan database initialized.")

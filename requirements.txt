@@ -2,5 +2,20 @@ requests>=2.31
 sqlalchemy>=2.0
 psycopg2-binary>=2.9
 streamlit>=1.35
+# starlette 1.4.0 added a required kwarg (thread_minimum_size) to
+# GZipResponder.__init__ that Streamlit's bundled gzip middleware doesn't
+# pass, even as of the latest Streamlit (1.61.1) at time of writing. Without
+# this pin, any non-static request with Accept-Encoding: gzip 500s with
+# "TypeError: GZipResponder.__init__() missing 1 required keyword-only
+# argument: 'thread_minimum_size'" — reproduced and confirmed against both
+# versions. Safe to drop once Streamlit ships a fix upstream.
+starlette<1.4.0
 python-dotenv>=1.0
+# Congressional disclosures come from the House Clerk as PDFs — the free
+# structured mirrors that used to parse them were withdrawn in Aug 2026.
+pdfplumber>=0.11
+vaderSentiment>=3.3
 pytest>=8.0
+# Builds a real PTR-shaped PDF for the extraction test; that test skips if
+# absent, so it is not needed to run Topos itself.
+fpdf2>=2.8

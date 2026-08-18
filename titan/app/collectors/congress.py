@@ -8,10 +8,10 @@ SENATE_URL = "https://senate-stock-watcher-data.s3-us-west-2.amazonaws.com/aggre
 
 class CongressTradeCollector:
     """Pulls congressional trade disclosures from House Stock Watcher and
-    Senate Stock Watcher. There is no free official structured API for
-    these — the House Clerk and Senate eFD systems only publish PDFs. These
-    two open-source projects parse those official disclosures into public
-    JSON and are the de facto free source everyone in this space uses."""
+    Senate Stock Watcher. There's no free official structured API for
+    these — the House Clerk and Senate eFD systems only publish PDFs.
+    These two open-source projects parse those official disclosures into
+    public JSON and are the de facto free source for this data."""
 
     def _get_json(self, url: str) -> list[dict[str, Any]]:
         response = requests.get(url, timeout=30)

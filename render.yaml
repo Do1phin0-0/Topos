@@ -1,11 +1,14 @@
-# NOTE: Render no longer offers a free-tier Postgres plan (free databases
-# used to auto-expire after 30 days; that option has since been removed).
-# "starter" below is the cheapest paid tier as of this writing — check
-# https://render.com/pricing and your Render dashboard before deploying,
-# since this repo can't verify current pricing live.
+# NOTE: Render no longer offers a free-tier Postgres plan, and it has also
+# retired the old named tiers (including "starter") for new databases —
+# deploying with plan: starter now fails Blueprint validation with
+# "Legacy Postgres plans ... are no longer supported for new databases."
+# Current plans are named by tier+RAM (e.g. basic-256mb, basic-1gb,
+# basic-4gb, pro-4gb). basic-256mb is Render's own default for new
+# databases and the cheapest paid option. Still worth confirming in your
+# Render dashboard before deploying, since pricing/plan names can change.
 databases:
   - name: topos-db
-    plan: starter
+    plan: basic-256mb
     databaseName: topos
     user: topos
 
@@ -51,3 +54,16 @@ services:
         sync: false
       - key: ALPACA_BASE_URL
         value: https://paper-api.alpaca.markets
+      # Optional — Reddit/Twitter sentiment are skipped (no error) if left
+      # unset. See README for what each needs (Reddit: free registered
+      # app; Twitter: paid X API plan).
+      - key: REDDIT_CLIENT_ID
+        sync: false
+      - key: REDDIT_CLIENT_SECRET
+        sync: false
+      - key: TWITTER_BEARER_TOKEN
+        sync: false
+      # Optional — institutional-ownership (13F) signals work without this
+      # at a low rate limit; set for higher OpenFIGI throughput.
+      - key: OPENFIGI_API_KEY
+        sync: false

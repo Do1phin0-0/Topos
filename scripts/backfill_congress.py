@@ -1,0 +1,271 @@
+"""Backfills historical congressional trades to accelerate validation.
+
+Live accumulation is slow: the score-bucket table needs enough closed
+forward windows to say anything, and the pipeline only sees new
+disclosures as they appear. The House Clerk publishes a yearly archive of
+every Periodic Transaction Report, so years of history can be ingested at
+once — which is what makes validating the scoring model possible now
+rather than next quarter.
+
+    python scripts/backfill_congress.py --since 2024-01-01
+    python scripts/backfill_congress.py --since 2024-01-01 --max-filings 50
+    python scripts/backfill_congress.py --since 2024-01-01 --skip-prices
+
+The first run downloads a few thousand PDFs; they are cached, so later
+runs re-parse from disk for free. Start with --max-filings to see the
+parse rate on a sample before committing to a full year, and --skip-prices
+to see the ticker count you would be signing up for.
+"""
+
+import argparse
+import sys
+import time
+from collections import Counter
+from datetime import date, datetime
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from sqlalchemy import delete
+
+from topos.backtesting.prices import BENCHMARK_TICKER, backfill_ticker
+from topos.collectors.house_clerk import HouseClerkCollector, HouseClerkUnavailable
+from topos.collectors.prices import PriceCollector
+from topos.db.models import PriceBar
+from topos.db.models import Signal as SignalRow
+from topos.db.session import SessionLocal, init_db
+from topos.pipeline import persist_signals
+from topos.signals.congress import extract_congress_signal
+
+
+def drop_other_basis(session, keeping: str) -> int:
+    """Removes congressional signals dated by the basis we are not using.
+
+    The same trade dated by transaction and again by disclosure is two
+    rows, same ticker, same source. The ranking engine counts distinct
+    sources per ticker, so those two would not inflate the source count —
+    but they would double the signal count, drag the staleness penalty
+    around, and put the same disclosure in a snapshot twice under two
+    different dates. A database holds one basis at a time.
+
+    Cheap to undo: congressional signals rebuild from cached PDFs in
+    seconds, so nothing is lost that a re-run cannot restore.
+    """
+    rows = session.query(SignalRow).filter(SignalRow.source.like("congress_%")).all()
+    doomed = [
+        row.id
+        for row in rows
+        if (row.evidence or {}).get("date_basis", "transaction") != keeping
+    ]
+    if not doomed:
+        return 0
+    for start in range(0, len(doomed), 500):  # SQLite parameter ceiling
+        session.execute(
+            delete(SignalRow).where(SignalRow.id.in_(doomed[start : start + 500]))
+        )
+    session.commit()
+    return len(doomed)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Backfill congressional trade history.")
+    parser.add_argument(
+        "--since",
+        default="2024-01-01",
+        help="Only ingest transactions on or after this date (YYYY-MM-DD).",
+    )
+    parser.add_argument(
+        "--max-filings",
+        type=int,
+        default=0,
+        help="Cap on PTR filings to fetch per year (0 = all). Use for a trial run.",
+    )
+    parser.add_argument(
+        "--max-tickers",
+        type=int,
+        default=250,
+        help="Cap on tickers to fetch price history for (0 = no cap).",
+    )
+    parser.add_argument(
+        "--skip-prices",
+        action="store_true",
+        help="Ingest signals only; report the tickers that would need prices.",
+    )
+    parser.add_argument(
+        "--delay",
+        type=float,
+        default=0.4,
+        help="Seconds between requests, to stay a polite client.",
+    )
+    parser.add_argument(
+        "--missing-only",
+        action="store_true",
+        help=(
+            "Fetch prices only for tickers that have none yet. Turns a "
+            "coverage repair into a fraction of a full re-run."
+        ),
+    )
+    parser.add_argument(
+        "--date-basis",
+        choices=["transaction", "disclosure"],
+        default="transaction",
+        help=(
+            "Which date anchors the signal. 'transaction' is when the member "
+            "traded (was the trade informed?); 'disclosure' is when the filing "
+            "became public, up to 45 days later (could a follower have traded "
+            "it?). Switching basis rebuilds the congressional signals."
+        ),
+    )
+    parser.add_argument(
+        "--diagnose",
+        action="store_true",
+        help=(
+            "Report why rows were dropped and print the text of filings the "
+            "parser could not read, then stop without ingesting. Reads from "
+            "the download cache, so it costs nothing to run."
+        ),
+    )
+    args = parser.parse_args()
+
+    since = datetime.strptime(args.since, "%Y-%m-%d").date()
+    years = list(range(since.year, date.today().year + 1))
+
+    # Deliberately not connecting yet: --diagnose only reads cached PDFs,
+    # and a parser question should not be blocked by a network problem
+    # between here and the database.
+    collector = HouseClerkCollector(delay=args.delay)
+    records = []
+    drops = Counter()
+    samples: list[tuple[str, str]] = []
+    examples: dict[str, list[str]] = {}
+
+    print(f"Fetching House Clerk disclosure archives for {years}...")
+    for year in years:
+        try:
+            result = collector.transactions(
+                year,
+                limit=args.max_filings or None,
+                keep_samples=4 if args.diagnose else 0,
+            )
+        except HouseClerkUnavailable as error:
+            # A year the Clerk has not published yet is expected, not fatal.
+            print(f"  {year}: unavailable ({error})")
+            continue
+
+        print(f"  {result.summary()}")
+        if result.unreadable_rate and result.unreadable_rate > 0.1:
+            print(
+                f"  [warn] {year}: {result.unreadable_rate:.0%} of filings with a text "
+                "layer had rows the parser could not read. Run --diagnose to see them."
+            )
+        records.extend(result.transactions)
+        drops.update(result.drops)
+        samples.extend(result.samples)
+        for reason, rows in result.dropped_examples.items():
+            kept = examples.setdefault(reason, [])
+            kept.extend(rows[: max(0, 4 - len(kept))])
+
+    if args.diagnose:
+        print()
+        width = max((len(reason) for reason in drops), default=0)
+        if drops:
+            print("Rows dropped, by reason:")
+            for reason, count in drops.most_common():
+                print(f"  {reason.ljust(width)}  {count}")
+        else:
+            print("No rows were dropped.")
+
+        # "no ticker" is expected to dominate — bonds, property, private
+        # holdings. But a stock whose ticker is written in an unrecognised
+        # form lands in that same bucket, and the two are only
+        # distinguishable by looking at the rows themselves.
+        for reason, rows in examples.items():
+            print(f"\n--- example rows dropped as '{reason}' " + "-" * 30)
+            for row in rows:
+                print(f"  {row[:160]}")
+
+        # The others mean a layout the parser cannot read at all.
+        for doc_id, text in samples:
+            print(f"\n--- unreadable filing {doc_id} " + "-" * 40)
+            print("\n".join(text.splitlines()[:45]))
+
+        print("\nStopping (--diagnose); nothing was ingested.")
+        return
+
+    print(f"\n  {len(records)} transactions parsed across {len(years)} year(s).")
+
+    signals = []
+    for record in records:
+        signal = extract_congress_signal(record, args.date_basis)
+        # Undateable and non-directional records are dropped by the
+        # extractor itself; only the date window is applied here.
+        if signal and signal.event_date >= since:
+            signals.append(signal)
+
+    print(f"  {len(signals)} usable signals in the window.")
+    if not signals:
+        print("Nothing to ingest.")
+        return
+
+    init_db()
+    session = SessionLocal()
+    try:
+        # The same trade dated two ways is two rows on the same ticker from
+        # the same source, and the ranking engine would read that as two
+        # sources corroborating each other — a fabricated agreement bonus on
+        # one disclosure. So a database holds one basis at a time.
+        removed = drop_other_basis(session, args.date_basis)
+        if removed:
+            print(
+                f"  Removed {removed} congressional signals dated by the other "
+                "basis, so the two cannot be read as corroborating each other."
+            )
+
+        inserted = persist_signals(session, signals)
+        print(f"  Persisted {inserted} new ({len(signals) - inserted} already known).")
+
+        tickers = sorted({s.ticker for s in signals})
+        print(f"\n{len(tickers)} distinct tickers referenced.")
+
+        if args.skip_prices:
+            print("Skipping price backfill (--skip-prices).")
+            print("Forward returns can't be measured until these have price history.")
+            return
+
+        if args.missing_only:
+            have = {t for (t,) in session.query(PriceBar.ticker).distinct()}
+            before = len(tickers)
+            tickers = [t for t in tickers if t not in have]
+            print(f"  {before - len(tickers)} already have prices; {len(tickers)} to fetch.")
+
+        targets = tickers if args.max_tickers == 0 else tickers[: args.max_tickers]
+        if BENCHMARK_TICKER not in targets:
+            # Without the benchmark's own history there is nothing to
+            # measure excess return against, and no signal mentions SPY.
+            targets = [BENCHMARK_TICKER, *targets]
+        if len(targets) < len(tickers):
+            print(f"Backfilling prices for the first {len(targets)} (--max-tickers).")
+        else:
+            print(f"Backfilling prices for all {len(targets)}.")
+
+        prices = PriceCollector()
+        total_bars = 0
+        for index, ticker in enumerate(targets, start=1):
+            try:
+                total_bars += backfill_ticker(session, ticker, collector=prices)
+            except Exception as exc:
+                print(f"  [warn] {ticker}: {exc}")
+            if index % 25 == 0:
+                print(f"  ...{index}/{len(targets)} tickers, {total_bars} bars stored")
+            time.sleep(args.delay)
+
+        print(f"\nDone. {total_bars} price bars stored across {len(targets)} tickers.")
+        print("Now run: python scripts/research_report.py --output report.md")
+    finally:
+        session.close()
+
+
+if __name__ == "__main__":
+    from _cli import run
+
+    run(main)

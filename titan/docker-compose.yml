@@ -1,0 +1,41 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: titan
+      POSTGRES_PASSWORD: titan
+      POSTGRES_DB: titan
+    ports:
+      - "5433:5432"
+    volumes:
+      - titan_db_data:/var/lib/postgresql/data
+
+  api:
+    build:
+      context: ..
+      dockerfile: titan/Dockerfile
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgresql://titan:titan@db:5432/titan
+      SEC_EDGAR_USER_AGENT: ${SEC_EDGAR_USER_AGENT:-Titan Research contact@example.com}
+      ALPACA_API_KEY: ${ALPACA_API_KEY:-}
+      ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
+      ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
+    ports:
+      - "8000:8000"
+
+  dashboard:
+    build:
+      context: ..
+      dockerfile: titan/Dockerfile
+    command: ["streamlit", "run", "titan/dashboard/app.py", "--server.address=0.0.0.0"]
+    depends_on:
+      - api
+    environment:
+      TITAN_API_BASE_URL: http://api:8000
+    ports:
+      - "8502:8501"  # 8502, not 8501 — avoids colliding with Topos's dashboard if both run at once
+
+volumes:
+  titan_db_data:
