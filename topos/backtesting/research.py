@@ -118,14 +118,18 @@ class CohortComparison:
 
     @property
     def verdict(self) -> str:
+        """Named after cohorts[1] versus cohorts[0] — `difference` is
+        always cohorts[1]'s mean minus cohorts[0]'s, so the verdict text
+        stays consistent with whichever two cohorts a caller compares."""
         usable = [c for c in self.cohorts if c.n >= MIN_SAMPLE_FOR_INFERENCE]
         if len(usable) < 2 or self.p_value is None:
             return "INSUFFICIENT DATA"
         if self.p_value > 0.05:
             return "NO SIGNIFICANT DIFFERENCE"
+        label = self.cohorts[1].label.upper() if len(self.cohorts) > 1 else "GROUP"
         if (self.difference or 0) > 0:
-            return "MULTI-SOURCE OUTPERFORMS"
-        return "MULTI-SOURCE UNDERPERFORMS"
+            return f"{label} OUTPERFORMS"
+        return f"{label} UNDERPERFORMS"
 
 
 def _ranks(values: list[float]) -> list[float]:
@@ -259,6 +263,17 @@ def score_return_correlation(
     )
 
 
+def _summarize_cohort(label: str, values: list[float]) -> CohortResult:
+    if not values:
+        return CohortResult(label, 0, None, None)
+    return CohortResult(
+        label=label,
+        n=len(values),
+        mean_return=statistics.mean(values),
+        win_rate=sum(1 for v in values if v > 0) / len(values),
+    )
+
+
 def multi_vs_single_source(
     db: Session, horizon_days: int = 20, benchmark: str | None = None, cost_bps: float = 0.0
 ) -> CohortComparison:
@@ -287,23 +302,66 @@ def multi_vs_single_source(
         source_count = len(opportunity.sources or [])
         (multi if source_count >= 2 else single).append(realized)
 
-    def _cohort(label: str, values: list[float]) -> CohortResult:
-        if not values:
-            return CohortResult(label, 0, None, None)
-        return CohortResult(
-            label=label,
-            n=len(values),
-            mean_return=statistics.mean(values),
-            win_rate=sum(1 for v in values if v > 0) / len(values),
-        )
-
     comparison = CohortComparison(
         horizon_days=horizon_days,
-        cohorts=[_cohort("single-source", single), _cohort("multi-source", multi)],
+        cohorts=[
+            _summarize_cohort("single-source", single),
+            _summarize_cohort("multi-source", multi),
+        ],
     )
     if single and multi:
         comparison.difference = statistics.mean(multi) - statistics.mean(single)
         comparison.p_value = permutation_difference_p_value(multi, single)
+    return comparison
+
+
+def form4_plan_vs_discretionary(
+    db: Session, horizon_days: int = 20, benchmark: str | None = None, cost_bps: float = 0.0
+) -> CohortComparison:
+    """Are scheduled Rule 10b5-1 trades diluting the Form 4 signal?
+
+    sec_form4's validated null result (docs/VALIDATION_RESULTS.md) graded
+    every insider transaction the same way. A Rule 10b5-1(c) plan is set
+    up months in advance and executes on a fixed schedule regardless of
+    what the insider currently knows — the insider-trading literature
+    treats it as carrying none of the informational content a
+    discretionary open-market trade does. This splits the two apart and
+    tests whether the discretionary half, on its own, does any better.
+
+    Each signal is graded on its own direction (buy/sell), unlike
+    `multi_vs_single_source` which grades ranked opportunities — this
+    compares two slices of the same raw source, not the combined score.
+    Only filings after the SEC's disclosure requirement took effect
+    (~April 2023) can actually distinguish the two; earlier filings have
+    no way to be flagged as a plan trade and fall into "discretionary" by
+    default (see topos/signals/form4.py), which understates how large the
+    plan cohort really is over the full history.
+    """
+    plan: list[float] = []
+    discretionary: list[float] = []
+
+    for signal in db.query(SignalRow).filter(SignalRow.source == "sec_form4").all():
+        direction = (signal.evidence or {}).get("direction")
+        multiplier = 1 if direction == "buy" else -1 if direction == "sell" else None
+        if multiplier is None:
+            continue
+        realized = _measure(db, signal.ticker, signal.event_date, horizon_days, benchmark)
+        if realized is None:
+            continue
+        realized = apply_cost(realized * multiplier, cost_bps)
+        is_plan = bool((signal.evidence or {}).get("is_10b5_1_plan"))
+        (plan if is_plan else discretionary).append(realized)
+
+    comparison = CohortComparison(
+        horizon_days=horizon_days,
+        cohorts=[
+            _summarize_cohort("10b5-1 plan", plan),
+            _summarize_cohort("discretionary", discretionary),
+        ],
+    )
+    if plan and discretionary:
+        comparison.difference = statistics.mean(discretionary) - statistics.mean(plan)
+        comparison.p_value = permutation_difference_p_value(discretionary, plan)
     return comparison
 
 

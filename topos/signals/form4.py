@@ -28,6 +28,18 @@ def extract_form4_signal(xml_root: ET.Element, filing_url: str) -> Signal | None
     is_director = _text(xml_root, "reportingOwner/reportingOwnerRelationship/isDirector") == "1"
     owner_name = _text(xml_root, "reportingOwner/reportingOwnerId/rptOwnerName", default="unknown")
 
+    # SEC rule (Release 33-11138, effective for filings from ~April 2023)
+    # requires a form-level checkbox when at least one reported transaction
+    # was made under a pre-scheduled Rule 10b5-1(c) plan. A plan is set up
+    # months in advance and executes on a schedule regardless of what the
+    # insider currently knows, so it carries none of the informational
+    # content a discretionary open-market trade does; the literature on
+    # insider trading treats the two as different signals. Missing on
+    # filings from before the rule took effect, or when a filer's agent
+    # omits it — treated as not-a-plan-trade rather than unknown, since
+    # that was the only possible reading before this element existed.
+    is_10b5_1_plan = _text(xml_root, "aff10b5One") == "1"
+
     total_value = 0.0
     net_shares = 0.0
     codes: list[str] = []
@@ -82,6 +94,7 @@ def extract_form4_signal(xml_root: ET.Element, filing_url: str) -> Signal | None
             "net_shares": net_shares,
             "total_value_usd": round(total_value, 2),
             "direction": direction,
+            "is_10b5_1_plan": is_10b5_1_plan,
         },
     )
 
