@@ -19,6 +19,7 @@ from topos.backtesting.research import (
     CohortComparison,
     CohortResult,
     CorrelationResult,
+    form4_plan_vs_discretionary,
     multi_vs_single_source,
     pearson,
     permutation_difference_p_value,
@@ -305,3 +306,59 @@ def test_multi_vs_single_source_separates_cohorts(db):
     assert by_label["single-source"].n == 40
     assert comparison.difference > 0
     assert comparison.verdict == "MULTI-SOURCE OUTPERFORMS"
+
+
+def test_form4_plan_vs_discretionary_separates_cohorts(db):
+    session, tickers = db
+    rng = random.Random(23)
+
+    for index, ticker in enumerate(tickers):
+        discretionary = index % 2 == 0
+        drift = 0.004 if discretionary else -0.001
+        price, closes = 100.0, []
+        for _ in range(40):
+            price *= 1 + drift + rng.gauss(0, 0.002)
+            closes.append(round(price, 2))
+        backfill_ticker(db=session, ticker=ticker, collector=_Stub(closes))
+        session.add(SignalRow(
+            timestamp=datetime(2026, 1, 5, tzinfo=None),
+            event_date=_START,
+            dedup_key=f"sec_form4:{ticker}",
+            source="sec_form4",
+            ticker=ticker,
+            confidence=0.7,
+            evidence={"direction": "buy", "is_10b5_1_plan": not discretionary},
+        ))
+    session.commit()
+
+    comparison = form4_plan_vs_discretionary(session, horizon_days=20)
+
+    by_label = {c.label: c for c in comparison.cohorts}
+    assert by_label["discretionary"].n == 40
+    assert by_label["10b5-1 plan"].n == 40
+    assert comparison.difference > 0
+    assert comparison.verdict == "DISCRETIONARY OUTPERFORMS"
+
+
+def test_form4_plan_vs_discretionary_ignores_other_sources(db):
+    session, tickers = db
+    price, closes = 100.0, []
+    rng = random.Random(31)
+    for _ in range(40):
+        price *= 1 + rng.gauss(0, 0.002)
+        closes.append(round(price, 2))
+    backfill_ticker(db=session, ticker=tickers[0], collector=_Stub(closes))
+    session.add(SignalRow(
+        timestamp=datetime(2026, 1, 5),
+        event_date=_START,
+        dedup_key=f"congress_house:{tickers[0]}",
+        source="congress_house",
+        ticker=tickers[0],
+        confidence=0.7,
+        evidence={"direction": "buy", "is_10b5_1_plan": False},
+    ))
+    session.commit()
+
+    comparison = form4_plan_vs_discretionary(session, horizon_days=20)
+
+    assert sum(c.n for c in comparison.cohorts) == 0

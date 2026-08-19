@@ -30,6 +30,7 @@ from topos.backtesting.prices import (
 from topos.backtesting.research import (
     MIN_SAMPLE_FOR_CONFIDENCE,
     MIN_SAMPLE_FOR_INFERENCE,
+    form4_plan_vs_discretionary,
     multi_vs_single_source,
     score_return_correlation,
     spearman,
@@ -298,9 +299,49 @@ def build_report(
       "that corroboration across independent sources beats one loud source. "
       "It has never been checked against outcomes before.")
     w("")
+    w("> **Read this section with caution.** A single-source opportunity can "
+      "only ever be recommendation HOLD — `attribution.py` requires 2+ "
+      "sources agreeing before a BUY or SELL is issued — so it gets no "
+      "directional sign-adjustment, while multi-source rows include real, "
+      "sign-adjusted BUY/SELL calls. This comparison has produced a large, "
+      "'significant'-looking but ultimately artifactual result twice now; "
+      "see `docs/VALIDATION_RESULTS.md`.")
+    w("")
+
+    # --- Form 4: scheduled vs discretionary ---
+    w("## 5. Form 4: 10b5-1 scheduled trades vs discretionary")
+    w("")
+    plan_cohorts = form4_plan_vs_discretionary(
+        session, horizon_days=horizon, benchmark=benchmark, cost_bps=cost_bps
+    )
+    rows = [
+        [c.label, str(c.n), "—" if c.win_rate is None else f"{c.win_rate:.0%}", _pct(c.mean_return)]
+        for c in plan_cohorts.cohorts
+    ]
+    w(_table(rows, ["cohort", "n", "win rate", "avg return"]))
+    w("")
+    w(_table(
+        [
+            ["difference (discretionary - plan)", _pct(plan_cohorts.difference)],
+            ["p-value (permutation)", _num(plan_cohorts.p_value)],
+            ["verdict", f"**{plan_cohorts.verdict}**"],
+        ],
+        ["metric", "value"],
+    ))
+    w("")
+    w("A Rule 10b5-1(c) trading plan is set up months in advance and executes "
+      "on a fixed schedule regardless of what the insider currently knows — "
+      "the insider-trading literature treats it as carrying none of the "
+      "informational content a discretionary open-market trade does. "
+      "sec_form4's validated null result graded both the same way; this "
+      "splits them apart. Only filings after the SEC's disclosure "
+      "requirement took effect (~April 2023) can be identified as plan "
+      "trades — earlier filings default to \"discretionary,\" which "
+      "understates the true plan-trade share over the full history.")
+    w("")
 
     # --- Task 6 ---
-    w("## 5. Recommendation on weights")
+    w("## 6. Recommendation on weights")
     w("")
     recommendation = weight_recommendation(correlation, cohorts, source_stats)
     w(f"### Verdict: **{recommendation.verdict}**")

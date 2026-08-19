@@ -34,6 +34,28 @@ def test_extract_form4_signal_parses_buy():
     assert signal.evidence["total_value_usd"] == 5000 * 42.50
 
 
+def test_extract_form4_signal_defaults_to_not_a_plan_trade_when_flag_absent():
+    # Filings from before the SEC's ~April 2023 disclosure requirement
+    # have no way to carry this element at all.
+    root = ET.fromstring(_SAMPLE_XML)
+
+    signal = extract_form4_signal(root, "https://example.com/filing-index.htm")
+
+    assert signal.evidence["is_10b5_1_plan"] is False
+
+
+def test_extract_form4_signal_reads_the_10b5_1_plan_flag():
+    xml = _SAMPLE_XML.replace(
+        "<reportingOwner>",
+        "<aff10b5One>1</aff10b5One><reportingOwner>",
+    )
+    root = ET.fromstring(xml)
+
+    signal = extract_form4_signal(root, "https://example.com/filing-index.htm")
+
+    assert signal.evidence["is_10b5_1_plan"] is True
+
+
 def test_extract_form4_signal_returns_none_without_ticker():
     root = ET.fromstring("<ownershipDocument><issuer></issuer></ownershipDocument>")
 
