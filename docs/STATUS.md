@@ -1,6 +1,6 @@
 # Where Topos stands — session checkpoint
 
-> **VALIDATION COMPLETE AND CONFIRMED — 2026-08-07.**
+> **VALIDATION COMPLETE AND CONFIRMED — 2026-08-07, RE-TESTED 2026-08-18.**
 > See `docs/VALIDATION_RESULTS.md`. The scoring model does not predict
 > returns. Both known holes were then closed — price coverage repaired
 > from 452 to 1,254 tickers, and congressional signals re-dated by
@@ -10,6 +10,15 @@
 > having been an artifact of the biased sample. Congress standalone is
 > -0.04% transaction-dated, +0.13% disclosure-dated; Form 4 is -0.34%.
 > All indistinguishable from zero against SPY.
+>
+> Five price-action sources (gap, relative volume, 20/60-day momentum,
+> 5-day reversal) and a flat 10bps transaction-cost model were added and
+> tested on 2026-08-18. They didn't rescue anything: all five cluster
+> near zero net of cost, the score correlation got even flatter
+> (rho=-0.000, p=0.940, n=40,319), and a large "multi-source
+> underperforms" result turned out to be a second, structurally distinct
+> artifact — see "Price-action signals — 2026-08-18" in
+> `docs/VALIDATION_RESULTS.md`.
 >
 > Nothing left to rescue. The open question is what Topos becomes, not
 > whether this model works.
@@ -33,9 +42,19 @@ score-return correlation · multi-source agreement · a weights
 recommendation. All six ran. All six are in
 `docs/VALIDATION_RESULTS.md`. The answer is no.
 
-## What is built and pushed (branch `claude/topos-repo-purpose-xsj7u0`)
+## What is built and pushed (branch `claude/topos-repo-purpose-xsj7u0`, merged to `main`)
 
-242 tests passing.
+281 tests passing.
+
+- **Price-action signals** (`topos/signals/price_action.py`) — gap,
+  relative volume, 20/60-day momentum, 5-day reversal, computed purely
+  from stored bars, no network call. Backfilled via
+  `scripts/backfill_price_signals.py`. Tested 2026-08-18: no edge, see
+  `docs/VALIDATION_RESULTS.md`.
+- **Flat transaction-cost model** (`apply_cost()` in
+  `topos/backtesting/prices.py`, `--cost-bps`/`--gross` on
+  `research_report.py`) — 10bps round-trip by default, applied strictly
+  after direction adjustment.
 
 - **Congressional collector** (`topos/collectors/house_clerk.py` +
   `ptr_parser.py`) — the House and Senate Stock Watcher mirrors died
@@ -90,9 +109,24 @@ py scripts/research_report.py --absolute --output report-abs.md
 
 ## Open items
 
-1. PR #3 is open and unmerged; this branch has moved far past it.
+1. PR #3 merged to `main` on 2026-08-18. A separate, unrelated PR #4
+   (`claude/market-signals-platform-uz6v0b`) is open, built on the old
+   pre-merge `main`, and proposes enabling live paper trading
+   (`--execute` on the Render cron). It was built without reference to
+   any of the validation work above and should not be merged as-is —
+   see the PR itself before touching it.
 2. Dashboard redesign — was deferred pending validation. Validation is
    done, but there is now nothing worth putting on a dashboard.
-3. Untested sources: earnings, 13F, news, technical, sentiment. Note that
-   adding a second source is what produced the multi-source finding, and
-   it was negative.
+3. `multi_vs_single_source` (`topos/backtesting/research.py`) has a
+   structural design flaw, not just a sampling problem: single-source
+   opportunities can only ever be recommendation HOLD (per
+   `attribution.py`'s 2-source-minimum rule for BUY/SELL), so they get no
+   directional sign-adjustment while multi-source opportunities do. The
+   comparison has never actually tested "does agreement help" — see
+   "Price-action signals — 2026-08-18" in `docs/VALIDATION_RESULTS.md`.
+   Needs a redesign (grade single-source on its own signal's direction,
+   or compare exactly-2-source vs 3+-source cohorts instead) before this
+   section of the report should be trusted.
+4. Untested sources: earnings, 13F, news, sentiment. Note that adding
+   sources is what produced two separate false "multi-source" findings
+   now — treat any future one with the same suspicion.
