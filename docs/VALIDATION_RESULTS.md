@@ -198,3 +198,74 @@ large enough to be worth another sentence.
 Every plausible rescue has been tried: more data, better coverage, three
 horizons, a benchmark, and both date conventions. The scoring model does
 not predict returns. That is now a measurement rather than a suspicion.
+
+## Price-action signals — 2026-08-18
+
+A different hypothesis than disclosure lag: does the market's own recent
+behaviour (gap, relative volume, 20/60-day momentum, 5-day reversal)
+predict what it does next? Five new sources, computed purely from stored
+price bars, backfilled and run through the identical pipeline plus a flat
+10bps round-trip cost model. 212,719 signals generated.
+
+| question | answer |
+|---|---|
+| Do the five price-action sources predict returns, net of cost? | No. All cluster near zero: `price_gap` −0.08%, `price_rel_volume` −0.18%, `price_momentum_20d` −0.20%, `price_momentum_60d` −0.28%, `price_reversal_5d` +0.02%. Win rates 48-50% across the board. |
+| Does adding them to the score improve the correlation? | It got *more* null. rho=−0.000, p=0.940, n=40,319 — no longer even the marginal p=0.122 signal seen with two sources. |
+| Does multi-source agreement beat single-source, now with 7 sources? | **Reported as -19.50% (p=0.000), then retracted — see below.** |
+
+### Momentum came back negative, not positive
+
+Worth stating plainly: momentum is one of the most replicated effects in
+equity markets, and it came back slightly negative here (`price_momentum_20d`
+−0.20%, `price_momentum_60d` −0.28%), not positive. At this magnitude — a
+fraction of a percent against a benchmark, on a sample this size — it reads
+as noise rather than a real reversal of a textbook effect, but it is not
+the confirming positive-control result the module docstring hoped for
+either. Neither claim should be overstated from these numbers.
+
+### The multi-vs-single-source finding, retracted a second time — and for a different reason
+
+`docs/VALIDATION_RESULTS.md`'s original release already retracted one
+version of this finding as a biased-sample artifact from missing price
+coverage. This run produced the same shape of result again — a large,
+"significant" gap on a tiny, lopsided cohort (single n=249, multi
+n=40,070) — and investigating it (`scripts/diagnose_single_source_cohort.py`)
+found two things:
+
+1. **Outlier domination.** The 5 most extreme of 249 observations account
+   for 84% of the cohort's total absolute return. Four of those five are
+   the *same ticker* (BMNR) measured on four adjacent snapshot dates
+   during one freak rally — one company's move counted four times, not
+   four independent data points.
+2. **A structural flaw, not (only) a sampling accident.** Every one of
+   the 249 single-source rows carries recommendation `HOLD`. That is not
+   a coincidence of this sample — it is guaranteed by `attribution.py`'s
+   own rule that a ticker needs 2+ sources agreeing before it can ever
+   receive a BUY or SELL call. A single source caps out at HOLD *by
+   construction*, and HOLD rows get no directional sign-adjustment; they
+   are graded on raw benchmark-relative drift. Multi-source rows are a
+   mix that includes real, sign-adjusted BUY/SELL calls. The comparison
+   was therefore never actually testing "does agreement between sources
+   help" — it was comparing unadjusted drift on weakly-signaled names
+   against direction-graded performance on confidently-signaled names.
+   This has been true since the *original* 2-source validation; it just
+   took a larger, more diverse signal set to expose it clearly.
+
+**This metric (`multi_vs_single_source`) should be read as unreliable as
+currently designed, not merely unlucky this one run.** It has now
+produced a large, statistically "significant" but ultimately artifactual
+result twice, for two different underlying reasons. A meaningful version
+of this test would need to either grade single-source opportunities on
+their lone signal's own directional evidence (rather than defaulting to
+unadjusted HOLD treatment), or compare cohorts that can both actually
+reach BUY/SELL — e.g. exactly-2-source versus 3-or-more-source agreement.
+Neither has been built. Until one is, this section of the report should
+be read, not acted on.
+
+### Updated bottom line
+
+Price-action does not rescue the model. Five more sources, a cost model,
+and 212,719 additional signals later, the honest reading is unchanged
+from the original verdict: the scoring model does not predict returns,
+and nothing measured since — including this run — has found an exception
+that survives scrutiny.
